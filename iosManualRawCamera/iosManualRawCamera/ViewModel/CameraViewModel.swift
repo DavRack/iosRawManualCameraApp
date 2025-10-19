@@ -1,0 +1,411 @@
+//
+//  CameraViewModel.swift
+//  iosManualRawCamera
+//
+//  Created by Jonathan Thomas on 2025-10-14.
+//
+
+import AVFoundation
+import SwiftUI
+import Photos
+import Combine
+
+class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
+    var captureSession: AVCaptureSession?
+    private var photoOutput = AVCapturePhotoOutput()
+    private let sessionQueue = DispatchQueue(label: "session queue")
+    private var device: AVCaptureDevice?
+    
+    @Published var minISO: Double = 0
+    @Published var maxISO: Double = 0
+    @Published var minShutterSpeed: Int = 0 //slowest
+    @Published var maxShutterSpeed: Int = 0 //fastest
+    @Published var lastCapturedThumbnail: UIImage?
+    
+    @Published var isCapturing = false
+    @Published var iso: Double {
+       didSet {
+           UserDefaults.standard.set(iso, forKey: "iso")
+           updateExposureSettings()
+       }
+    }
+    @Published var shutterSpeed: CMTime {
+        didSet {
+            UserDefaults.standard.set(Int(shutterSpeed.timescale), forKey: "shutterSpeed")
+            updateExposureSettings()
+        }
+    }
+    
+    
+    override init() {
+        
+        // Default values
+       let defaultIso = 400.0
+       let defaultShutterSpeed = 100
+       
+       if let storedIso = UserDefaults.standard.object(forKey: "iso") as? Double {
+           self.iso = storedIso
+       } else {
+           self.iso = defaultIso
+       }
+       
+       if let storedTimescale = UserDefaults.standard.object(forKey: "shutterSpeed") as? Int {
+           self.shutterSpeed = CMTime(value: 1, timescale: Int32(storedTimescale))
+       } else {
+           self.shutterSpeed = CMTime(value: 1, timescale: Int32(defaultShutterSpeed))
+       }
+       
+       super.init()
+       checkPermissions()
+    }
+    
+    //request camera access
+    func checkPermissions() {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            print("camera access authorized")
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video) { granted in
+                if granted {
+                    print("camera access authorized")
+                }
+            }
+        default:
+            print("Camera access denied or restricted.")
+        }
+    }
+    
+    //setup camera session, completion handler to indicate when finished
+    func setupCamera(_ flashEnabled: Bool, _ focusPoint: CGPoint?, completion: @escaping (Result<Void, Error>) -> Void) { //maybe make throwing
+        sessionQueue.async {
+            self.captureSession = AVCaptureSession()
+            guard let captureSession = self.captureSession else {
+                print("capture session not yet running")
+                return }
+            captureSession.beginConfiguration()
+            captureSession.sessionPreset = .photo
+            
+            //can specify which lens
+            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+                print("No back camera found.")
+                return
+            }
+            self.device = device
+            
+            do {
+                let input = try AVCaptureDeviceInput(device: device)
+                if captureSession.canAddInput(input) {
+                    captureSession.addInput(input)
+                }
+                
+                if captureSession.canAddOutput(self.photoOutput) {
+                    captureSession.addOutput(self.photoOutput)
+                }
+                
+                //MARK: set manual exposure settings
+                try device.lockForConfiguration()
+                
+                //set exposure setting
+                device.exposureMode = .custom
+                device.setExposureModeCustom(duration: self.shutterSpeed, iso: Float(self.iso), completionHandler: nil)
+                
+                // set focus point if provided
+                if let focusPoint = focusPoint, device.isFocusPointOfInterestSupported {
+                    device.focusPointOfInterest = focusPoint
+                    device.focusMode = .autoFocus
+                } else {
+                    //otherwise use autofocus
+                    device.focusMode = .continuousAutoFocus
+                }
+                
+                device.isSubjectAreaChangeMonitoringEnabled = false
+                
+                //fire flash on picture
+                //device.torchMode = .on
+                
+                //leaving this locked to avoid any settings changing
+                //device.unlockForConfiguration()
+                
+                captureSession.commitConfiguration()
+                captureSession.startRunning() //this might need to be in a background thread to prevent freezing
+                
+                if !captureSession.isRunning {
+                    print("Failed to start camera session")
+                    return
+                }
+                
+                
+                //MARK: torch continously on
+                //DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if flashEnabled {
+                    DispatchQueue.main.async {
+                        do {
+                            //try device.lockForConfiguration()
+                            try device.setTorchModeOn(level: 1.0)
+                            //device.unlockForConfiguration()
+                        } catch {
+                            print("flash failed to fire")
+                        }
+                    }
+                }
+                
+                print("Camera session started")
+                completion(.success(()))
+                
+            } catch {
+                print("Error setting up camera: \(error)")
+                completion(.failure(error))
+            }
+        }
+    }
+    
+    func capturePhoto(_ flashEnabled: Bool, _ arEnabled: Bool , _ focusPoint: CGPoint?) {
+        guard !isCapturing else { return }
+        isCapturing = true
+        
+        //in AR modes, need to setup camera on each picture
+        if arEnabled {
+            // Setup camera first, capture code runs on completion
+            setupCamera(flashEnabled, focusPoint) { result in
+                switch result {
+                case .success:
+                    self.capturePhotoWithSettings()
+                    
+                    
+                case .failure(let error):
+                    print("Error setting up camera: \(error)")
+                    self.isCapturing = false
+                }
+            }
+        } else {
+            //skip setup and go straight to capture
+            self.capturePhotoWithSettings()
+        }
+    }
+    
+    
+    //once camera setup is complete initiate capture
+    func capturePhotoWithSettings() {
+        //ui changes on main thread
+        DispatchQueue.main.async {
+            guard let captureSession = self.captureSession, captureSession.isRunning else {
+                print("Capture session not running")
+                self.isCapturing = false
+                return
+            }
+            
+            //check if we have camera access back from ARKit
+            guard let _ = self.photoOutput.connection(with: .video) else {
+                print("Photo output not properly configured")
+                self.isCapturing = false
+                return
+            }
+            
+            guard !self.photoOutput.availableRawPhotoPixelFormatTypes.isEmpty else {
+                print("RAW capture not supported")
+                self.isCapturing = false
+                return
+            }
+            
+            if let rawFormat = self.photoOutput.availableRawPhotoPixelFormatTypes.first {
+                let settings = AVCapturePhotoSettings(rawPixelFormatType: rawFormat)
+                settings.flashMode = .off
+                self.photoOutput.capturePhoto(with: settings, delegate: self)
+            } else {
+                print("No RAW format available")
+                self.isCapturing = false
+            }
+        }
+    }
+    
+    
+    //Update exp settings in current session
+    func updateExposureSettings() {
+        guard let device = self.device else {
+            print("No camera device available")
+            return
+        }
+        
+        sessionQueue.async {
+            do {
+                try device.lockForConfiguration()
+                device.setExposureModeCustom(duration: self.shutterSpeed, iso: Float(self.iso), completionHandler: nil)
+                print("Exposure settings updated: ISO \(self.iso), Shutter \(self.shutterSpeed.timescale)")
+            } catch {
+                print("Error updating exposure settings: \(error)")
+            }
+        }
+    }
+    
+    
+    //func to toggle continous torch
+    func setupTorch(_ flashOn: Bool) {
+        
+        sessionQueue.async {
+            // Use the existing device instance rather than getting a new one
+            guard let device = self.device else {
+                print("Torch is not available - no device.")
+                return
+            }
+            
+            // Check if torch is available on this device
+            guard device.hasTorch && device.isTorchAvailable else {
+                print("Torch is not available on this device.")
+                return
+            }
+            
+            do {
+                try device.lockForConfiguration()
+                
+                if flashOn {
+                    try device.setTorchModeOn(level: 1.0)
+                    print("Torch turned on")
+                } else {
+                    device.torchMode = .off
+                    print("Torch turned off")
+                }
+                
+                device.unlockForConfiguration()
+            } catch {
+                print("Flash failed to fire: \(error)")
+            }
+        }
+    }
+    
+    
+    
+    //get min/max iso and shutterspeed of device
+    func getDeviceSpecs() {
+        
+        guard let device = AVCaptureDevice.default(for: .video) else {
+            print("Camera device not available")
+            return
+        }
+        
+        DispatchQueue.main.async {
+            let minDeviceISO = Double(device.activeFormat.minISO)
+            let maxDeviceISO = Double(device.activeFormat.maxISO)
+            
+            self.minISO = ceil(minDeviceISO / 50.0) * 50.0 //round up to nearest 50
+            self.maxISO = floor(maxDeviceISO / 50.0) * 50.0 //round down to nearest 10
+            
+            let minDeviceSS = device.activeFormat.maxExposureDuration //slowest
+            let maxDeviceSS = device.activeFormat.minExposureDuration //fastet
+            
+            let minSSRounded = Int(ceil(Float(minDeviceSS.timescale) / 10.0) * 10.0) //round up to nearest 10
+            self.minShutterSpeed = max(10, minSSRounded)
+            
+            let seconds = CMTimeGetSeconds(maxDeviceSS)
+            let convertedTimescale = Int(1.0 / seconds)  //convert to 1/x format
+            self.maxShutterSpeed = Int(floor(Float(convertedTimescale) / 10.0) * 10.0)  //round down to nearest 10
+        }
+    }
+    
+    
+    
+    //delegate method for processing captured photo
+    func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+        if let error = error {
+            print("Error capturing photo: \(error)")
+            isCapturing = false
+            return
+        }
+        
+        //check if the captured photo has RAW data
+        guard let photoData = photo.fileDataRepresentation() else {
+            print("No photo data available")
+            isCapturing = false
+            return
+        }
+        
+        print("Captured RAW image data of size \(photoData.count) bytes")
+        
+        // Generate thumbnail from RAW data
+        generateThumbnail(from: photoData)
+        
+        //save to photo library
+        PHPhotoLibrary.requestAuthorization { status in
+            if status == .authorized {
+                // Save the RAW image to the Photo Library
+                PHPhotoLibrary.shared().performChanges({
+                    let creationRequest = PHAssetCreationRequest.forAsset()
+
+                    //add RAW data as resource
+                    creationRequest.addResource(with: .photo, data: photoData, options: nil)
+                }) { success, error in
+                    DispatchQueue.main.async {
+                        if success {
+                            print("RAW image saved to photo library.")
+                        } else if let error = error {
+                            print("Error saving RAW image: \(error)")
+                        }
+                        self.isCapturing = false
+                    }
+                }
+            } else {
+                print("Photo library access denied.")
+                DispatchQueue.main.async {
+                    self.isCapturing = false
+                }
+            }
+        }
+        
+        
+        DispatchQueue.main.async {
+            self.isCapturing = false
+        }
+    }
+    
+    
+    
+    private func generateThumbnail(from rawData: Data) {
+        Task.detached { //background thread
+            guard let imageSource = CGImageSourceCreateWithData(rawData as CFData, nil),
+                  let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil) else {
+                print("Could not create image from RAW data")
+                return
+            }
+            
+            // Create UIImage and resize for thumbnail
+            let fullImage = UIImage(cgImage: cgImage, scale: 1.0, orientation: .right)
+            let thumbnailSize = CGSize(width: 150, height: 150)
+            let thumbnail = fullImage.preparingThumbnail(of: thumbnailSize)
+            
+            await MainActor.run {
+                self.lastCapturedThumbnail = thumbnail
+            }
+        }
+    }
+        
+        
+//Save to photos
+
+//        PHPhotoLibrary.requestAuthorization { status in
+//            if status == .authorized {
+//                // Save the RAW image to the Photo Library
+//                PHPhotoLibrary.shared().performChanges({
+//                    let creationRequest = PHAssetCreationRequest.forAsset()
+//
+//                    //add RAW data as resource
+//                    creationRequest.addResource(with: .photo, data: photoData, options: nil)
+//                }) { success, error in
+//                    DispatchQueue.main.async {
+//                        if success {
+//                            print("RAW image saved to photo library.")
+//                        } else if let error = error {
+//                            print("Error saving RAW image: \(error)")
+//                        }
+//                        self.isCapturing = false
+//                        //signal to resume ar session once image is saved
+//                        self.photoCompletedPublisher.send()
+//                    }
+//                }
+//            } else {
+//                print("Photo library access denied.")
+//                DispatchQueue.main.async {
+//                    self.isCapturing = false
+//                }
+//            }
+//        }
+    
+}
