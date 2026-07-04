@@ -8,6 +8,8 @@
 
 /* Begin PBXFileReference section */
 		42EB5D202E9F134600AF3197 /* iosManualRawCamera.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iosManualRawCamera.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AF91E1202EFCC6BE001A3BFE /* pichromaticlib.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = pichromaticlib.h; path = "../../imops/pichromatic-pipeline/target/pichromaticlib.h"; sourceTree = "<group>"; };
+		AF91E1212EFCC6D5001A3BFE /* libpichromatic_pipeline.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libpichromatic_pipeline.a; path = "../../imops/pichromatic-pipeline/target/aarch64-apple-ios/release/libpichromatic_pipeline.a"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -46,6 +48,7 @@
 			isa = PBXGroup;
 			children = (
 				42EB5D222E9F134600AF3197 /* iosManualRawCamera */,
+				AF91C83F2EFCC4C8001A3BFE /* Frameworks */,
 				42EB5D212E9F134600AF3197 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -56,6 +59,15 @@
 				42EB5D202E9F134600AF3197 /* iosManualRawCamera.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		AF91C83F2EFCC4C8001A3BFE /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				AF91E1212EFCC6D5001A3BFE /* libpichromatic_pipeline.a */,
+				AF91E1202EFCC6BE001A3BFE /* pichromaticlib.h */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -91,7 +103,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1640;
-				LastUpgradeCheck = 1640;
+				LastUpgradeCheck = 2620;
 				TargetAttributes = {
 					42EB5D1F2E9F134600AF3197 = {
 						CreatedOnToolsVersion = 16.4;
@@ -197,6 +209,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -254,6 +267,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -266,7 +280,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 82KAY32793;
+				DEVELOPMENT_TEAM = 8L52GGJW9T;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = iosManualRawCamera/Info.plist;
@@ -282,7 +296,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.jonathanthomas.iosManualRawCamera;
+				PRODUCT_BUNDLE_IDENTIFIER = com.iosManualRawCamera;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -297,7 +311,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 82KAY32793;
+				DEVELOPMENT_TEAM = 8L52GGJW9T;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = iosManualRawCamera/Info.plist;
@@ -313,7 +327,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.jonathanthomas.iosManualRawCamera;
+				PRODUCT_BUNDLE_IDENTIFIER = com.iosManualRawCamera;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;

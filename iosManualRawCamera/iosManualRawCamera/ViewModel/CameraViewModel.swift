@@ -40,7 +40,7 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
     override init() {
         
         // Default values
-       let defaultIso = 400.0
+       let defaultIso = 100.0
        let defaultShutterSpeed = 100
        
        if let storedIso = UserDefaults.standard.object(forKey: "iso") as? Double {
@@ -286,6 +286,7 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
             let minDeviceISO = Double(device.activeFormat.minISO)
             let maxDeviceISO = Double(device.activeFormat.maxISO)
             
+            print(minDeviceISO)
             self.minISO = ceil(minDeviceISO / 50.0) * 50.0 //round up to nearest 50
             self.maxISO = floor(maxDeviceISO / 50.0) * 50.0 //round down to nearest 10
             
