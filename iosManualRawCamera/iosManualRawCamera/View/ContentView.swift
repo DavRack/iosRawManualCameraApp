@@ -20,6 +20,7 @@ struct ContentView: View {
     @State private var flashOn = false
     @State private var isoWheelActive = false
     @State private var ssWheelActive = false
+    @State private var isConfigModalPresented = false
     
     
     var body: some View {
@@ -83,7 +84,7 @@ struct ContentView: View {
                 } else {
                     
                     //MARK: exp settings toolbar
-                    HStack(alignment: .center, spacing: 25) {
+                    HStack(alignment: .center, spacing: 20) {
                         
                         // Flash button
                         Button(action: {
@@ -95,37 +96,56 @@ struct ContentView: View {
                                 .foregroundColor(.white)
                         }
                         
+                        // Auto/Manual Exposure Mode Toggle Button
+                        Button(action: {
+                            viewModel.isAutoExposure.toggle()
+                        }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: viewModel.isAutoExposure ? "a.circle.fill" : "m.circle.fill")
+                                    .font(.system(size: 20, weight: .semibold))
+                                    .foregroundColor(viewModel.isAutoExposure ? .yellow : .white)
+                                Text(viewModel.isAutoExposure ? "Auto" : "Manual")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+                        }
+                        
                         // ISO button
                         Button(action: {
-                            isoWheelActive = true
+                            if !viewModel.isAutoExposure {
+                                isoWheelActive = true
+                            }
                         }) {
-                            HStack(spacing: 6) {
+                            HStack(spacing: 4) {
                                 Image("isoIcon")
                                     .renderingMode(.template)
                                     .resizable()
                                     .aspectRatio(contentMode: .fit)
-                                    .frame(height: 25)
-                                    .foregroundColor(.white)
-                                Text(String(Int(viewModel.iso)))
-                                    .font(.system(size: 16, weight: .medium))
-                                    .foregroundColor(.white)
+                                    .frame(height: 22)
+                                    .foregroundColor(viewModel.isAutoExposure ? .gray : .white)
+                                Text(viewModel.isAutoExposure ? "Auto" : String(Int(viewModel.iso)))
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundColor(viewModel.isAutoExposure ? .gray : .white)
                             }
                         }
+                        .disabled(viewModel.isAutoExposure)
                         
                         // Shutter Speed Button
                         Button(action: {
-                            ssWheelActive = true
+                            if !viewModel.isAutoExposure {
+                                ssWheelActive = true
+                            }
                         }) {
-                            HStack(spacing: 6) {
+                            HStack(spacing: 4) {
                                 Image(systemName: "stopwatch")
-                                    .font(.system(size: 18, weight: .medium))
-                                    .foregroundColor(.white)
-                                Text("1/\(Int(viewModel.shutterSpeed.timescale))s")
                                     .font(.system(size: 16, weight: .medium))
-                                    .foregroundColor(.white)
+                                    .foregroundColor(viewModel.isAutoExposure ? .gray : .white)
+                                Text(viewModel.isAutoExposure ? "Auto" : "1/\(Int(viewModel.shutterSpeed.timescale))s")
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundColor(viewModel.isAutoExposure ? .gray : .white)
                             }
                         }
-                        
+                        .disabled(viewModel.isAutoExposure)
                         
                     }
                     .padding(.horizontal, 20)
@@ -204,8 +224,30 @@ struct ContentView: View {
                     
                     Spacer()
                     
-                    Color.clear
-                        .frame(width: 60, height: 60)
+                    // Configuration Button (opens Modal)
+                    Button(action: {
+                        isConfigModalPresented = true
+                    }) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.black.opacity(0.6))
+                                .frame(width: 60, height: 60)
+                                .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 4)
+                            
+                            VStack(spacing: 3) {
+                                Image(systemName: "gearshape.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundColor(.white)
+                                Text(viewModel.exportFormat.shortName)
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+                        }
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                        )
+                    }
                         
                     
                 }
@@ -228,6 +270,9 @@ struct ContentView: View {
                     print("Error with camera setup")
                 }
             }
+        }
+        .sheet(isPresented: $isConfigModalPresented) {
+            ConfigView(viewModel: viewModel)
         }
     }
     
@@ -275,6 +320,49 @@ struct CameraPreviewView: UIViewRepresentable {
     func updateUIView(_ uiView: UICameraPreviewView, context: Context) {
         if uiView.previewLayer.session !== session {
             uiView.previewLayer.session = session
+        }
+    }
+}
+
+struct ConfigView: View {
+    @ObservedObject var viewModel: CameraViewModel
+    @Environment(\.dismiss) var dismiss
+    @State private var isPipelineConfigExpanded = false
+    
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Export Configuration")) {
+                    Picker("Format", selection: $viewModel.exportFormat) {
+                        ForEach(ExportFormat.allCases) { format in
+                            Text(format.rawValue).tag(format)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
+                
+                Section {
+                    DisclosureGroup("Pichromatic pipeline", isExpanded: $isPipelineConfigExpanded) {
+                        TextEditor(text: $viewModel.pipelineConfigToml)
+                            .font(.system(.body, design: .monospaced))
+                            .frame(minHeight: 300)
+                            .autocorrectionDisabled()
+                            .textInputAutocapitalization(.none)
+                            .onChange(of: viewModel.pipelineConfigToml) { newValue in
+                                print("DEBUG SWIFT: pipelineConfigToml changed to \(newValue.count) chars")
+                            }
+                    }
+                }
+            }
+            .navigationTitle("Configuration")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
         }
     }
 }

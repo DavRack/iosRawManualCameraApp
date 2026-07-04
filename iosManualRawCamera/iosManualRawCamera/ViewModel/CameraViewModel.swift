@@ -11,6 +11,22 @@ import Photos
 import Combine
 import ImageIO
 
+enum ExportFormat: String, CaseIterable, Identifiable {
+    case raw = "RAW"
+    case jpeg = "JPEG"
+    case rawAndJpeg = "RAW + JPEG"
+    
+    var id: String { self.rawValue }
+    
+    var shortName: String {
+        switch self {
+        case .raw: return "RAW"
+        case .jpeg: return "JPEG"
+        case .rawAndJpeg: return "R+J"
+        }
+    }
+}
+
 class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
     var captureSession: AVCaptureSession?
     private var photoOutput = AVCapturePhotoOutput()
@@ -22,8 +38,24 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
     @Published var minShutterSpeed: Int = 0 //slowest
     @Published var maxShutterSpeed: Int = 0 //fastest
     @Published var lastCapturedThumbnail: UIImage?
+    @Published var exportFormat: ExportFormat {
+        didSet {
+            UserDefaults.standard.set(exportFormat.rawValue, forKey: "exportFormat")
+        }
+    }
+    @Published var pipelineConfigToml: String {
+        didSet {
+            UserDefaults.standard.set(pipelineConfigToml, forKey: "pipelineConfigToml")
+        }
+    }
     
     @Published var isCapturing = false
+    @Published var isAutoExposure: Bool {
+        didSet {
+            UserDefaults.standard.set(isAutoExposure, forKey: "isAutoExposure")
+            updateExposureSettings()
+        }
+    }
     @Published var iso: Double {
        didSet {
            UserDefaults.standard.set(iso, forKey: "iso")
@@ -54,6 +86,64 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
            self.shutterSpeed = CMTime(value: 1, timescale: Int32(storedTimescale))
        } else {
            self.shutterSpeed = CMTime(value: 1, timescale: Int32(defaultShutterSpeed))
+       }
+       
+       if let storedAutoExp = UserDefaults.standard.object(forKey: "isAutoExposure") as? Bool {
+           self.isAutoExposure = storedAutoExp
+       } else {
+           self.isAutoExposure = false
+       }
+       
+       if let storedFormatRaw = UserDefaults.standard.string(forKey: "exportFormat"),
+          let storedFormat = ExportFormat(rawValue: storedFormatRaw) {
+           self.exportFormat = storedFormat
+       } else {
+           self.exportFormat = .rawAndJpeg
+       }
+       
+       let defaultToml = """
+       #### Pixel Pipeline ####
+
+       [[pipeline_modules]]
+       name = "Demosaic"
+       algorithm = "Markesteijn"
+
+       [[pipeline_modules]]
+       name = "CFACoeffs"
+
+       [[pipeline_modules]]
+       name = "HighlightReconstruction"
+
+       [[pipeline_modules]]
+       name = "Exp"
+       ev = 1
+
+       [[pipeline_modules]]
+       name = "Contrast"
+       c = 1.1
+
+       [[pipeline_modules]]
+       name = "CST"
+       target_color_space = "XyzD65"
+
+       [[pipeline_modules]]
+       name = "LCH"
+       lc = 1
+       cc = 1
+       hc = 1
+
+       [[pipeline_modules]]
+       name = "ToneMap"
+
+       [[pipeline_modules]]
+       name = "CST"
+       target_color_space = "Srgb"
+       """
+       
+       if let storedToml = UserDefaults.standard.string(forKey: "pipelineConfigToml") {
+           self.pipelineConfigToml = storedToml
+       } else {
+           self.pipelineConfigToml = defaultToml
        }
        
        super.init()
@@ -103,12 +193,17 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
                     captureSession.addOutput(self.photoOutput)
                 }
                 
-                //MARK: set manual exposure settings
+                //MARK: set manual/auto exposure settings
                 try device.lockForConfiguration()
                 
-                //set exposure setting
-                device.exposureMode = .custom
-                device.setExposureModeCustom(duration: self.shutterSpeed, iso: Float(self.iso), completionHandler: nil)
+                if self.isAutoExposure {
+                    if device.isExposureModeSupported(.continuousAutoExposure) {
+                        device.exposureMode = .continuousAutoExposure
+                    }
+                } else {
+                    device.exposureMode = .custom
+                    device.setExposureModeCustom(duration: self.shutterSpeed, iso: Float(self.iso), completionHandler: nil)
+                }
                 
                 // set focus point if provided
                 if let focusPoint = focusPoint, device.isFocusPointOfInterestSupported {
@@ -229,8 +324,19 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
         sessionQueue.async {
             do {
                 try device.lockForConfiguration()
-                device.setExposureModeCustom(duration: self.shutterSpeed, iso: Float(self.iso), completionHandler: nil)
-                print("Exposure settings updated: ISO \(self.iso), Shutter \(self.shutterSpeed.timescale)")
+                if self.isAutoExposure {
+                    if device.isExposureModeSupported(.continuousAutoExposure) {
+                        device.exposureMode = .continuousAutoExposure
+                        print("Exposure settings updated: Auto Exposure")
+                    } else {
+                        print("Continuous Auto Exposure not supported on this device")
+                    }
+                } else {
+                    device.exposureMode = .custom
+                    device.setExposureModeCustom(duration: self.shutterSpeed, iso: Float(self.iso), completionHandler: nil)
+                    print("Exposure settings updated: Manual (ISO \(self.iso), Shutter \(self.shutterSpeed.timescale))")
+                }
+                device.unlockForConfiguration()
             } catch {
                 print("Error updating exposure settings: \(error)")
             }
@@ -338,66 +444,9 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
             }
             
             // 2. Parse config TOML
-            let configToml = """
-            #### Pixel Pipeline ####
-
-            [[pipeline_modules]]
-            name = "Demosaic"
-            algorithm = "Markesteijn"
-
-            # algorithm = "fast"
-
-            # [[pipeline_modules]]
-            # name = "Crop"
-            # factor = 1
-            # point = [0, 0]
-            # size = [1, 1]
-            # view_window = [1920, 1080]
-
-            [[pipeline_modules]]
-            name = "CFACoeffs"
-
-            [[pipeline_modules]]
-            name = "HighlightReconstruction"
-
-
-
-            [[pipeline_modules]]
-            name = "Exp"
-            ev = 1
-
-            [[pipeline_modules]]
-            name = "Contrast"
-            c = 1.1
-
-            [[pipeline_modules]]
-            name = "CST"
-            target_color_space = "XyzD65"
-
-
-            # # [[pipeline_modules]]
-            # # name = "ChromaDenoise"
-            # # a = 1
-            # # b = 1
-            # # strength = 0.1
-
-            [[pipeline_modules]]
-            name = "LCH"
-            lc = 1
-            cc = 1
-            hc = 1
-
-            [[pipeline_modules]]
-            name = "ToneMap"
-            # c = 6
-
-            [[pipeline_modules]]
-            name = "CST"
-            target_color_space = "Srgb"
-
-            """
+            let configToml = self.pipelineConfigToml
+            print("DEBUG SWIFT: Parsing pipeline config TOML (length \(configToml.count)):\n\(configToml)")
             
-            print("Parsing pipeline config...")
             let configData = configToml.data(using: .utf8)!
             configData.withUnsafeBytes { (configBuffer: UnsafeRawBufferPointer) in
                 guard let configAddress = configBuffer.baseAddress else { return }
@@ -433,16 +482,18 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
                             self.lastCapturedThumbnail = uiImage
                         }
                         
-                        // 6. Save processed image to gallery
-                        PHPhotoLibrary.requestAuthorization { status in
-                            if status == .authorized {
-                                PHPhotoLibrary.shared().performChanges({
-                                    PHAssetChangeRequest.creationRequestForAsset(from: uiImage)
-                                }) { success, error in
-                                    if success {
-                                        print("Processed image saved to gallery successfully!")
-                                    } else if let error = error {
-                                        print("Error saving processed image to gallery: \(error)")
+                        // 6. Save processed image to gallery if requested
+                        if self.exportFormat == .jpeg || self.exportFormat == .rawAndJpeg {
+                            PHPhotoLibrary.requestAuthorization { status in
+                                if status == .authorized {
+                                    PHPhotoLibrary.shared().performChanges({
+                                        PHAssetChangeRequest.creationRequestForAsset(from: uiImage)
+                                    }) { success, error in
+                                        if success {
+                                            print("Processed image saved to gallery successfully!")
+                                        } else if let error = error {
+                                            print("Error saving processed image to gallery: \(error)")
+                                        }
                                     }
                                 }
                             }
@@ -466,30 +517,34 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
             free_image_c(rustImage)
         }
         
-        //save to photo library
-        PHPhotoLibrary.requestAuthorization { status in
-            if status == .authorized {
-                // Save the RAW image to the Photo Library
-                PHPhotoLibrary.shared().performChanges({
-                    let creationRequest = PHAssetCreationRequest.forAsset()
-
-                    //add RAW data as resource
-                    creationRequest.addResource(with: .photo, data: photoData, options: nil)
-                }) { success, error in
-                    DispatchQueue.main.async {
-                        if success {
-                            print("RAW image saved to photo library.")
-                        } else if let error = error {
-                            print("Error saving RAW image: \(error)")
+        //save to photo library if requested
+        if self.exportFormat == .raw || self.exportFormat == .rawAndJpeg {
+            PHPhotoLibrary.requestAuthorization { status in
+                if status == .authorized {
+                    // Save the RAW image to the Photo Library
+                    PHPhotoLibrary.shared().performChanges({
+                        let creationRequest = PHAssetCreationRequest.forAsset()
+                        creationRequest.addResource(with: .photo, data: photoData, options: nil)
+                    }) { success, error in
+                        DispatchQueue.main.async {
+                            if success {
+                                print("RAW image saved to photo library.")
+                            } else if let error = error {
+                                print("Error saving RAW image: \(error)")
+                            }
+                            self.isCapturing = false
                         }
+                    }
+                } else {
+                    print("Photo library access denied.")
+                    DispatchQueue.main.async {
                         self.isCapturing = false
                     }
                 }
-            } else {
-                print("Photo library access denied.")
-                DispatchQueue.main.async {
-                    self.isCapturing = false
-                }
+            }
+        } else {
+            DispatchQueue.main.async {
+                self.isCapturing = false
             }
         }
         
