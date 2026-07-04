@@ -18,6 +18,7 @@ struct ExposureSliderView: View {
     @State private var currentTickIndex: Int
     @State private var tickOffset: CGFloat = 0
     @State private var lastDragTranslation: CGFloat = 0
+    @State private var initialDragIndex: Int = 0
     
     //fixed tick spacing
     private let tickSpacing: CGFloat = 15
@@ -86,23 +87,23 @@ struct ExposureSliderView: View {
                     .gesture(
                         DragGesture()
                             .onChanged { value in
-                                let dragDistance = value.translation.width - lastDragTranslation
+                                if lastDragTranslation == 0 {
+                                    // Start of drag: record starting index
+                                    initialDragIndex = currentTickIndex
+                                    lastDragTranslation = 1.0 // non-zero sentinel representing active drag
+                                }
                                 
-                                // Calculate how many ticks we've moved based on fixed spacing
-                                let ticksMoved = Int(round(dragDistance / tickSpacing))
+                                // Calculate how many ticks we've moved from the start of the drag
+                                let totalTicksMoved = Int(round(value.translation.width / tickSpacing))
+                                let newTickIndex = initialDragIndex - totalTicksMoved
+                                let clampedIndex = max(0, min(tickCount - 1, newTickIndex))
                                 
-                                if ticksMoved != 0 {
-                                    let newTickIndex = currentTickIndex - ticksMoved
-                                    
-                                    // Clamp to valid range (only real ticks, not phantom ones)
-                                    currentTickIndex = max(0, min(tickCount - 1, newTickIndex))
+                                if clampedIndex != currentTickIndex {
+                                    currentTickIndex = clampedIndex
                                     
                                     // Haptic feedback
                                     let impactFeedback = UIImpactFeedbackGenerator(style: .light)
                                     impactFeedback.impactOccurred()
-                                    
-                                    // Update the last drag translation to prevent accumulation
-                                    lastDragTranslation = value.translation.width
                                 }
                             }
                             .onEnded { _ in

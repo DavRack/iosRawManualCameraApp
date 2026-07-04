@@ -124,8 +124,7 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
                 //fire flash on picture
                 //device.torchMode = .on
                 
-                //leaving this locked to avoid any settings changing
-                //device.unlockForConfiguration()
+                device.unlockForConfiguration()
                 
                 captureSession.commitConfiguration()
                 captureSession.startRunning() //this might need to be in a background thread to prevent freezing
@@ -430,6 +429,10 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
                     if let uiImage = uiImageFromRGBBytes(bytes: rgbPtr, width: outWidth, height: outHeight, orientation: imageOrientation) {
                         print("Successfully created processed UIImage")
                         
+                        DispatchQueue.main.async {
+                            self.lastCapturedThumbnail = uiImage
+                        }
+                        
                         // 6. Save processed image to gallery
                         PHPhotoLibrary.requestAuthorization { status in
                             if status == .authorized {
@@ -498,26 +501,32 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
     
     private func uiImageFromRGBBytes(bytes: UnsafePointer<UInt8>, width: Int, height: Int, orientation: UIImage.Orientation) -> UIImage? {
         let colorSpace = CGColorSpaceCreateDeviceRGB()
-        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue)
-        let buffer = UnsafeMutablePointer<UInt8>(mutating: bytes)
+        let bitmapInfo = CGImageAlphaInfo.noneSkipLast.rawValue
         
-        guard let providerRef = CGDataProvider(dataInfo: nil, data: buffer, size: width * height * 3, releaseData: { (_, _, _) in }) else {
-            return nil
-        }
-        
-        guard let cgImage = CGImage(
+        guard let context = CGContext(
+            data: nil,
             width: width,
             height: height,
             bitsPerComponent: 8,
-            bitsPerPixel: 24,
-            bytesPerRow: width * 3,
+            bytesPerRow: width * 4,
             space: colorSpace,
-            bitmapInfo: bitmapInfo,
-            provider: providerRef,
-            decode: nil,
-            shouldInterpolate: true,
-            intent: .defaultIntent
+            bitmapInfo: bitmapInfo
         ) else {
+            return nil
+        }
+        
+        // Copy 24-bit RGB (3 bytes) to 32-bit RGBA (4 bytes) context buffer
+        if let dest = context.data?.assumingMemoryBound(to: UInt8.self) {
+            let pixelCount = width * height
+            for i in 0..<pixelCount {
+                dest[i * 4]     = bytes[i * 3]     // R
+                dest[i * 4 + 1] = bytes[i * 3 + 1] // G
+                dest[i * 4 + 2] = bytes[i * 3 + 2] // B
+                dest[i * 4 + 3] = 255              // A (Opaque)
+            }
+        }
+        
+        guard let cgImage = context.makeImage() else {
             return nil
         }
         

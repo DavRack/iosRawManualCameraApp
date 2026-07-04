@@ -244,30 +244,37 @@ struct ContentView: View {
 
 
 
+class UICameraPreviewView: UIView {
+    var previewLayer: AVCaptureVideoPreviewLayer {
+        return layer as! AVCaptureVideoPreviewLayer
+    }
+    
+    override class var layerClass: AnyClass {
+        return AVCaptureVideoPreviewLayer.self
+    }
+    
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        previewLayer.frame = bounds
+    }
+}
+
 // Camera preview
 struct CameraPreviewView: UIViewRepresentable {
     var session: AVCaptureSession?
     
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView(frame: UIScreen.main.bounds)
-        let previewLayer = AVCaptureVideoPreviewLayer()
-        
-        previewLayer.videoGravity = .resizeAspectFill
-        previewLayer.frame = view.bounds
-        
-        view.layer.addSublayer(previewLayer)
-        
+    func makeUIView(context: Context) -> UICameraPreviewView {
+        let view = UICameraPreviewView()
+        view.previewLayer.videoGravity = .resizeAspectFill
         if let session = session {
-            previewLayer.session = session
+            view.previewLayer.session = session
         }
-        
         return view
     }
     
-    func updateUIView(_ uiView: UIView, context: Context) {
-        if let previewLayer = uiView.layer.sublayers?.first as? AVCaptureVideoPreviewLayer,
-           let session = session {
-            previewLayer.session = session
+    func updateUIView(_ uiView: UICameraPreviewView, context: Context) {
+        if uiView.previewLayer.session !== session {
+            uiView.previewLayer.session = session
         }
     }
 }
