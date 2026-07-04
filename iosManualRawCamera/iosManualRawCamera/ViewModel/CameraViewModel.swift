@@ -27,11 +27,35 @@ enum ExportFormat: String, CaseIterable, Identifiable {
     }
 }
 
+struct CameraLens: Identifiable, Equatable {
+    let id: String
+    let deviceType: AVCaptureDevice.DeviceType
+    let focalLength: Int
+    
+    var displayName: String {
+        return "\(focalLength)mm"
+    }
+}
+
 class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
     var captureSession: AVCaptureSession?
     private var photoOutput = AVCapturePhotoOutput()
     private let sessionQueue = DispatchQueue(label: "session queue")
     private var device: AVCaptureDevice?
+    
+    @Published var availableLenses: [CameraLens] = []
+    @Published var selectedLens: CameraLens? {
+        didSet {
+            if let lens = selectedLens, oldValue?.id != lens.id {
+                switchLens(lens)
+            }
+        }
+    }
+    
+    @Published var cameraPosition: AVCaptureDevice.Position = .back
+    
+    @Published var pendingProcessingCount: Int = 0
+    private let processingQueue = DispatchQueue(label: "com.pichromatic.processing", qos: .userInitiated)
     
     @Published var minISO: Double = 0
     @Published var maxISO: Double = 0
@@ -50,6 +74,7 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
     }
     
     @Published var isCapturing = false
+    @Published var lastCapturedAssetLocalIdentifier: String?
     @Published var isAutoExposure: Bool {
         didSet {
             UserDefaults.standard.set(isAutoExposure, forKey: "isAutoExposure")
@@ -166,6 +191,27 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
         }
     }
     
+    func triggerCaptureRealizedFeedback() {
+        DispatchQueue.main.async {
+            #if !targetEnvironment(simulator)
+            // Medium impact haptic feedback for shutter release
+            let generator = UIImpactFeedbackGenerator(style: .medium)
+            generator.prepare()
+            generator.impactOccurred()
+            #endif
+        }
+    }
+    
+    func openLastPhotoInSystemGallery() {
+        if let url = URL(string: "photos-redirect://") {
+            UIApplication.shared.open(url, options: [:], completionHandler: nil)
+        }
+    }
+    
+    func triggerPipelineFinishedFeedback() {
+        // No feedback when the pipeline finishes
+    }
+    
     //setup camera session, completion handler to indicate when finished
     func setupCamera(_ flashEnabled: Bool, _ focusPoint: CGPoint?, completion: @escaping (Result<Void, Error>) -> Void) { //maybe make throwing
         sessionQueue.async {
@@ -177,8 +223,17 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
             captureSession.sessionPreset = .photo
             
             //can specify which lens
-            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
-                print("No back camera found.")
+            self.updateAvailableLenses()
+            let lensToUse = self.selectedLens?.deviceType ?? .builtInWideAngleCamera
+            let positionToUse = self.cameraPosition
+            let deviceTypeToUse = (positionToUse == .front) ? .builtInWideAngleCamera : lensToUse
+            guard let device = AVCaptureDevice.default(deviceTypeToUse, for: .video, position: positionToUse) else {
+                print("Selected device not available. Defaulting to Wide Angle back camera.")
+                guard let defaultDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
+                    print("No back camera found.")
+                    return
+                }
+                self.device = defaultDevice
                 return
             }
             self.device = device
@@ -380,10 +435,202 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
     
     
     
+    func updateAvailableLenses() {
+        let deviceTypes: [AVCaptureDevice.DeviceType] = [
+            .builtInUltraWideCamera,
+            .builtInWideAngleCamera,
+            .builtInTelephotoCamera
+        ]
+        let discoverySession = AVCaptureDevice.DiscoverySession(
+            deviceTypes: deviceTypes,
+            mediaType: .video,
+            position: .back
+        )
+        
+        let devices = discoverySession.devices
+        var lenses: [CameraLens] = []
+        for device in devices {
+            // Get the nominal focal length.
+            let focalLength: Int
+            if #available(iOS 26.0, *) {
+                let nominal = device.nominalFocalLengthIn35mmFilm
+                if nominal > 0 {
+                    focalLength = Int(round(nominal))
+                } else {
+                    focalLength = defaultFocalLength(for: device.deviceType)
+                }
+            } else {
+                focalLength = defaultFocalLength(for: device.deviceType)
+            }
+            
+            let lens = CameraLens(
+                id: device.uniqueID,
+                deviceType: device.deviceType,
+                focalLength: focalLength
+            )
+            
+            if !lenses.contains(where: { $0.deviceType == device.deviceType }) {
+                lenses.append(lens)
+            }
+        }
+        
+        lenses.sort(by: { $0.focalLength < $1.focalLength })
+        
+        if lenses.isEmpty {
+            lenses = [CameraLens(id: "default_wide", deviceType: .builtInWideAngleCamera, focalLength: 24)]
+        }
+        
+        DispatchQueue.main.async {
+            self.availableLenses = lenses
+            
+            if self.selectedLens == nil {
+                if let wideLens = lenses.first(where: { $0.deviceType == .builtInWideAngleCamera }) {
+                    self.selectedLens = wideLens
+                } else {
+                    self.selectedLens = lenses.first
+                }
+            } else {
+                if !lenses.contains(where: { $0.id == self.selectedLens?.id }) {
+                    if let matchingType = lenses.first(where: { $0.deviceType == self.selectedLens?.deviceType }) {
+                        self.selectedLens = matchingType
+                    } else {
+                        self.selectedLens = lenses.first
+                    }
+                }
+            }
+        }
+    }
+    
+    private func defaultFocalLength(for deviceType: AVCaptureDevice.DeviceType) -> Int {
+        switch deviceType {
+        case .builtInUltraWideCamera: return 13
+        case .builtInWideAngleCamera: return 24
+        case .builtInTelephotoCamera: return 77
+        default: return 24
+        }
+    }
+    
+    func switchLens(_ lens: CameraLens) {
+        sessionQueue.async {
+            guard let captureSession = self.captureSession else { return }
+            captureSession.beginConfiguration()
+            
+            // Remove existing input(s)
+            if let inputs = captureSession.inputs as? [AVCaptureDeviceInput] {
+                for input in inputs {
+                    captureSession.removeInput(input)
+                }
+            }
+            
+            // Get new device
+            guard let newDevice = AVCaptureDevice.default(lens.deviceType, for: .video, position: .back) else {
+                print("Lens \(lens.displayName) not found, using default wide camera.")
+                captureSession.commitConfiguration()
+                return
+            }
+            self.device = newDevice
+            
+            do {
+                let input = try AVCaptureDeviceInput(device: newDevice)
+                if captureSession.canAddInput(input) {
+                    captureSession.addInput(input)
+                }
+                
+                // Re-apply custom settings if in manual mode
+                try newDevice.lockForConfiguration()
+                if self.isAutoExposure {
+                    if newDevice.isExposureModeSupported(.continuousAutoExposure) {
+                        newDevice.exposureMode = .continuousAutoExposure
+                    }
+                } else {
+                    newDevice.exposureMode = .custom
+                    newDevice.setExposureModeCustom(duration: self.shutterSpeed, iso: Float(self.iso), completionHandler: nil)
+                }
+                newDevice.focusMode = .continuousAutoFocus
+                newDevice.unlockForConfiguration()
+                
+                captureSession.commitConfiguration()
+                print("Switched to lens: \(lens.displayName)")
+                
+                // Re-query spec limits because different lenses have different ISO / Shutter Speed boundaries!
+                self.getDeviceSpecs()
+                
+            } catch {
+                print("Error switching lens: \(error)")
+                captureSession.commitConfiguration()
+            }
+        }
+    }
+    
+    func toggleCameraPosition() {
+        let newPosition: AVCaptureDevice.Position = (cameraPosition == .back) ? .front : .back
+        
+        sessionQueue.async {
+            guard let captureSession = self.captureSession else { return }
+            captureSession.beginConfiguration()
+            
+            // Remove existing input(s)
+            if let inputs = captureSession.inputs as? [AVCaptureDeviceInput] {
+                for input in inputs {
+                    captureSession.removeInput(input)
+                }
+            }
+            
+            // Get new device
+            let newDevice: AVCaptureDevice?
+            if newPosition == .front {
+                newDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front)
+            } else {
+                newDevice = AVCaptureDevice.default(self.selectedLens?.deviceType ?? .builtInWideAngleCamera, for: .video, position: .back)
+            }
+            
+            guard let device = newDevice else {
+                print("Could not find camera device for position \(newPosition)")
+                captureSession.commitConfiguration()
+                return
+            }
+            self.device = device
+            
+            do {
+                let input = try AVCaptureDeviceInput(device: device)
+                if captureSession.canAddInput(input) {
+                    captureSession.addInput(input)
+                }
+                
+                // Re-apply custom settings if in manual mode
+                try device.lockForConfiguration()
+                if self.isAutoExposure {
+                    if device.isExposureModeSupported(.continuousAutoExposure) {
+                        device.exposureMode = .continuousAutoExposure
+                    }
+                } else {
+                    device.exposureMode = .custom
+                    device.setExposureModeCustom(duration: self.shutterSpeed, iso: Float(self.iso), completionHandler: nil)
+                }
+                device.focusMode = .continuousAutoFocus
+                device.unlockForConfiguration()
+                
+                captureSession.commitConfiguration()
+                print("Switched camera position to: \(newPosition == .back ? "Back" : "Front")")
+                
+                DispatchQueue.main.async {
+                    self.cameraPosition = newPosition
+                }
+                
+                // Re-query spec limits for the new active device
+                self.getDeviceSpecs()
+                
+            } catch {
+                print("Error toggling camera position: \(error)")
+                captureSession.commitConfiguration()
+            }
+        }
+    }
+    
     //get min/max iso and shutterspeed of device
     func getDeviceSpecs() {
         
-        guard let device = AVCaptureDevice.default(for: .video) else {
+        guard let device = self.device else {
             print("Camera device not available")
             return
         }
@@ -415,31 +662,60 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         if let error = error {
             print("Error capturing photo: \(error)")
-            isCapturing = false
+            DispatchQueue.main.async {
+                self.isCapturing = false
+            }
             return
         }
         
-        //check if the captured photo has RAW data
+        // Check if the captured photo has RAW data
         guard let photoData = photo.fileDataRepresentation() else {
             print("No photo data available")
-            isCapturing = false
+            DispatchQueue.main.async {
+                self.isCapturing = false
+            }
             return
         }
         
         print("Captured RAW image data of size \(photoData.count) bytes")
         
-        // Generate thumbnail from RAW data
+        // Generate low-res thumbnail immediately for instant UI feedback
         generateThumbnail(from: photoData)
         
+        // Increment pending count and release the isCapturing lock immediately
+        DispatchQueue.main.async {
+            self.pendingProcessingCount += 1
+            self.isCapturing = false
+        }
+        
+        // Capture metadata before sending to background queue
+        let metadata = photo.metadata
+        
+        // Process the RAW data in the background queue sequentially
+        processingQueue.async {
+            self.processCapturedPhotoData(photoData, metadata: metadata)
+        }
+    }
+    
+    private func processCapturedPhotoData(_ photoData: Data, metadata: [String: Any]) {
         // Run pichromatic pipeline on the raw DNG bytes
         photoData.withUnsafeBytes { (rawBufferPointer: UnsafeRawBufferPointer) in
-            guard let baseAddress = rawBufferPointer.baseAddress else { return }
+            guard let baseAddress = rawBufferPointer.baseAddress else {
+                DispatchQueue.main.async {
+                    self.pendingProcessingCount = max(0, self.pendingProcessingCount - 1)
+                }
+                return
+            }
             let bytesPointer = baseAddress.assumingMemoryBound(to: UInt8.self)
             
             // 1. Decode raw image
             print("Decoding raw image using Rust library...")
+            self.triggerCaptureRealizedFeedback()
             guard let rustImage = get_raw_img(bytesPointer, photoData.count) else {
                 print("Failed to decode raw image using Rust")
+                DispatchQueue.main.async {
+                    self.pendingProcessingCount = max(0, self.pendingProcessingCount - 1)
+                }
                 return
             }
             
@@ -455,6 +731,9 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
                 guard let pipeline = get_pixel_pipeline_c(configBytes, configData.count) else {
                     print("Failed to parse pipeline config")
                     free_image_c(rustImage)
+                    DispatchQueue.main.async {
+                        self.pendingProcessingCount = max(0, self.pendingProcessingCount - 1)
+                    }
                     return
                 }
                 
@@ -471,7 +750,7 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
                     print("RGB retrieved: \(outWidth)x\(outHeight), size: \(outLen) bytes")
                     
                     // 5. Convert to UIImage with correct EXIF orientation
-                    let exifOrientationVal = (photo.metadata[kCGImagePropertyOrientation as String] as? NSNumber)?.int32Value ?? 1
+                    let exifOrientationVal = (metadata[kCGImagePropertyOrientation as String] as? NSNumber)?.int32Value ?? 1
                     let imageOrientation = self.uiImageOrientation(from: exifOrientationVal)
                     print("EXIF orientation: \(exifOrientationVal), mapped to Swift orientation: \(imageOrientation)")
                     
@@ -480,17 +759,25 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
                         
                         DispatchQueue.main.async {
                             self.lastCapturedThumbnail = uiImage
+                            self.triggerPipelineFinishedFeedback()
                         }
                         
                         // 6. Save processed image to gallery if requested
                         if self.exportFormat == .jpeg || self.exportFormat == .rawAndJpeg {
                             PHPhotoLibrary.requestAuthorization { status in
                                 if status == .authorized {
+                                    var placeholder: PHObjectPlaceholder?
                                     PHPhotoLibrary.shared().performChanges({
-                                        PHAssetChangeRequest.creationRequestForAsset(from: uiImage)
+                                        let request = PHAssetChangeRequest.creationRequestForAsset(from: uiImage)
+                                        placeholder = request.placeholderForCreatedAsset
                                     }) { success, error in
                                         if success {
                                             print("Processed image saved to gallery successfully!")
+                                            if let localId = placeholder?.localIdentifier {
+                                                DispatchQueue.main.async {
+                                                    self.lastCapturedAssetLocalIdentifier = localId
+                                                }
+                                            }
                                         } else if let error = error {
                                             print("Error saving processed image to gallery: \(error)")
                                         }
@@ -517,40 +804,45 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
             free_image_c(rustImage)
         }
         
-        //save to photo library if requested
+        // Save to photo library if RAW format requested
         if self.exportFormat == .raw || self.exportFormat == .rawAndJpeg {
             PHPhotoLibrary.requestAuthorization { status in
                 if status == .authorized {
                     // Save the RAW image to the Photo Library
+                    var placeholder: PHObjectPlaceholder?
                     PHPhotoLibrary.shared().performChanges({
                         let creationRequest = PHAssetCreationRequest.forAsset()
                         creationRequest.addResource(with: .photo, data: photoData, options: nil)
+                        placeholder = creationRequest.placeholderForCreatedAsset
                     }) { success, error in
-                        DispatchQueue.main.async {
-                            if success {
-                                print("RAW image saved to photo library.")
-                            } else if let error = error {
-                                print("Error saving RAW image: \(error)")
+                        if success {
+                            print("RAW image saved to photo library.")
+                            if let localId = placeholder?.localIdentifier {
+                                DispatchQueue.main.async {
+                                    self.lastCapturedAssetLocalIdentifier = localId
+                                }
                             }
-                            self.isCapturing = false
+                        } else if let error = error {
+                            print("Error saving RAW image: \(error)")
+                        }
+                        
+                        // Decrement pending count on final completion
+                        DispatchQueue.main.async {
+                            self.pendingProcessingCount = max(0, self.pendingProcessingCount - 1)
                         }
                     }
                 } else {
                     print("Photo library access denied.")
                     DispatchQueue.main.async {
-                        self.isCapturing = false
+                        self.pendingProcessingCount = max(0, self.pendingProcessingCount - 1)
                     }
                 }
             }
         } else {
+            // Decrement pending count on final completion (since no RAW save was needed)
             DispatchQueue.main.async {
-                self.isCapturing = false
+                self.pendingProcessingCount = max(0, self.pendingProcessingCount - 1)
             }
-        }
-        
-        
-        DispatchQueue.main.async {
-            self.isCapturing = false
         }
     }
     

@@ -101,9 +101,11 @@ struct ExposureSliderView: View {
                                 if clampedIndex != currentTickIndex {
                                     currentTickIndex = clampedIndex
                                     
+                                    #if !targetEnvironment(simulator)
                                     // Haptic feedback
                                     let impactFeedback = UIImpactFeedbackGenerator(style: .light)
                                     impactFeedback.impactOccurred()
+                                    #endif
                                 }
                             }
                             .onEnded { _ in

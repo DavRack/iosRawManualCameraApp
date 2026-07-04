@@ -4,5 +4,14 @@
 <dict>
 	<key>NSCameraReactionEffectGesturesEnabledDefault</key>
 	<true/>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Pichromatic needs access to your photo library to open captured photos.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Pichromatic needs permission to save captured photos to your library.</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>photos-redirect</string>
+		<string>photos-navigation</string>
+	</array>
 </dict>
 </plist>

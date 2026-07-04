@@ -32,6 +32,11 @@ struct ContentView: View {
                     viewModel.getDeviceSpecs() //get iso and shutterspeed range for device
                 }
             
+
+
+            
+
+            
             // Full screen tap-to-dismiss overlay
             if isoWheelActive || ssWheelActive {
                 Color.clear
@@ -46,6 +51,33 @@ struct ContentView: View {
             
             VStack {
                 Spacer()
+                
+                // Lens Switcher (0.5x, 1x, Tele)
+                if !isoWheelActive && !ssWheelActive && viewModel.cameraPosition == .back && viewModel.availableLenses.count > 1 {
+                    HStack(spacing: 16) {
+                        ForEach(viewModel.availableLenses) { lens in
+                            Button(action: {
+                                viewModel.selectedLens = lens
+                                triggerCameraHapticFeedback()
+                            }) {
+                                Text(lens.displayName)
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(viewModel.selectedLens?.id == lens.id ? .yellow : .white)
+                                    .frame(width: 44, height: 44)
+                                    .background(
+                                        Circle()
+                                            .fill(Color.black.opacity(0.5))
+                                    )
+                                    .overlay(
+                                        Circle()
+                                            .stroke(viewModel.selectedLens?.id == lens.id ? Color.yellow : Color.white.opacity(0.2), lineWidth: 1)
+                                    )
+                            }
+                        }
+                    }
+                    .padding(.bottom, 8)
+                    .transition(.opacity)
+                }
                 
                 //MARK: exposure sliders
                 if isoWheelActive {
@@ -85,6 +117,15 @@ struct ContentView: View {
                     
                     //MARK: exp settings toolbar
                     HStack(alignment: .center, spacing: 20) {
+                        
+                        // Configuration Button (opens Modal)
+                        Button(action: {
+                            isConfigModalPresented = true
+                        }) {
+                            Image(systemName: "gearshape.fill")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundColor(.white)
+                        }
                         
                         // Flash button
                         Button(action: {
@@ -174,35 +215,61 @@ struct ContentView: View {
                 // MARK: bottom Controls
                 HStack {
                     
-                    // Thumbnail preview
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(Color.black.opacity(0.6))
-                            .frame(width: 60, height: 60)
-                            .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 4)
-                        
-                        if let thumbnail = viewModel.lastCapturedThumbnail {
-                            Image(uiImage: thumbnail)
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
+                    // Gallery Button (Thumbnail preview)
+                    Button(action: {
+                        viewModel.openLastPhotoInSystemGallery()
+                        #if !targetEnvironment(simulator)
+                        let generator = UIImpactFeedbackGenerator(style: .light)
+                        generator.prepare()
+                        generator.impactOccurred()
+                        #endif
+                    }) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(Color.black.opacity(0.6))
                                 .frame(width: 60, height: 60)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                                .transition(.asymmetric(
-                                    insertion: .opacity.combined(with: .scale(scale: 1.1)),
-                                    removal: .identity
-                                ))
-                                .id(UUID())
-                        }
+                                .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 4)
                             
-                        Text("\(captureCount)")
-                            .foregroundColor(.white)
-                            .font(.system(size: 16, weight: .medium))
-                            .shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 1)
+                            if let thumbnail = viewModel.lastCapturedThumbnail {
+                                Image(uiImage: thumbnail)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fill)
+                                    .frame(width: 60, height: 60)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                    .transition(.asymmetric(
+                                        insertion: .opacity.combined(with: .scale(scale: 1.1)),
+                                        removal: .identity
+                                    ))
+                                    .id(UUID())
+                            }
+                                
+                            if viewModel.pendingProcessingCount > 0 {
+                                Color.black.opacity(0.4)
+                                    .frame(width: 60, height: 60)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                
+                                ZStack {
+                                    ProgressView()
+                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                        .scaleEffect(1.6)
+                                    
+                                    Text("\(viewModel.pendingProcessingCount)")
+                                        .foregroundColor(.white)
+                                        .font(.system(size: 12, weight: .bold))
+                                }
+                            } else {
+                                Text("\(captureCount)")
+                                    .foregroundColor(.white)
+                                    .font(.system(size: 16, weight: .medium))
+                                    .shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 1)
+                            }
+                        }
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                        )
                     }
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(Color.white.opacity(0.3), lineWidth: 1)
-                    )
+                    .buttonStyle(PlainButtonStyle())
                     .animation(.spring(response: 0.3), value: viewModel.lastCapturedThumbnail)
                     
                     
@@ -212,7 +279,6 @@ struct ContentView: View {
                     // MARK: Capture button
                     Button(action: {
                         viewModel.capturePhoto(false, false, nil)
-                        triggerCameraHapticFeedback()
                         captureCount += 1
                     }) {
                         Image("captureButton")
@@ -224,9 +290,10 @@ struct ContentView: View {
                     
                     Spacer()
                     
-                    // Configuration Button (opens Modal)
+                    // Rotate Camera Button
                     Button(action: {
-                        isConfigModalPresented = true
+                        viewModel.toggleCameraPosition()
+                        triggerCameraHapticFeedback()
                     }) {
                         ZStack {
                             Circle()
@@ -234,14 +301,9 @@ struct ContentView: View {
                                 .frame(width: 60, height: 60)
                                 .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 4)
                             
-                            VStack(spacing: 3) {
-                                Image(systemName: "gearshape.fill")
-                                    .font(.system(size: 20))
-                                    .foregroundColor(.white)
-                                Text(viewModel.exportFormat.shortName)
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundColor(.white)
-                            }
+                            Image(systemName: "arrow.triangle.2.circlepath.camera")
+                                .font(.system(size: 22))
+                                .foregroundColor(.white)
                         }
                         .overlay(
                             Circle()
@@ -274,16 +336,18 @@ struct ContentView: View {
         .sheet(isPresented: $isConfigModalPresented) {
             ConfigView(viewModel: viewModel)
         }
+
     }
     
     
     
     // Helper function to trigger haptic feedback
     func triggerCameraHapticFeedback() {
-        
+        #if !targetEnvironment(simulator)
         let impactFeedbackGenerator = UIImpactFeedbackGenerator(style: .light)
         impactFeedbackGenerator.prepare()
         impactFeedbackGenerator.impactOccurred()
+        #endif
     }
 }
 
@@ -366,4 +430,6 @@ struct ConfigView: View {
         }
     }
 }
+
+
 
