@@ -24,305 +24,293 @@ struct ContentView: View {
     
     
     var body: some View {
-        ZStack {
-            // Camera preview
-            CameraPreviewView(session: cameraFeedRunning ? viewModel.captureSession : nil) //once camera feed starts pass in session
-                .edgesIgnoringSafeArea(.all)
+        ZStack(alignment: .top) {
+            Color.black.ignoresSafeArea() // Solid black background behind bars
+            
+            // Camera preview with 3:4 sensor display aspect ratio
+            CameraPreviewView(session: cameraFeedRunning ? viewModel.captureSession : nil)
+                .ignoresSafeArea()
                 .onAppear {
-                    viewModel.getDeviceSpecs() //get iso and shutterspeed range for device
+                    viewModel.getDeviceSpecs()
                 }
-            
-
-
-            
-
             
             // Full screen tap-to-dismiss overlay
             if isoWheelActive || ssWheelActive {
                 Color.clear
                     .contentShape(Rectangle())
-                    .edgesIgnoringSafeArea(.all)
+                    .ignoresSafeArea()
                     .onTapGesture {
                         isoWheelActive = false
                         ssWheelActive = false
                     }
             }
             
-            
-            VStack {
-                Spacer()
-                
-                // Lens Switcher (0.5x, 1x, Tele)
-                if !isoWheelActive && !ssWheelActive && viewModel.cameraPosition == .back && viewModel.availableLenses.count > 1 {
-                    HStack(spacing: 16) {
-                        ForEach(viewModel.availableLenses) { lens in
-                            Button(action: {
-                                viewModel.selectedLens = lens
-                                triggerCameraHapticFeedback()
-                            }) {
-                                Text(lens.displayName)
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(viewModel.selectedLens?.id == lens.id ? .yellow : .white)
-                                    .frame(width: 44, height: 44)
-                                    .background(
-                                        Circle()
-                                            .fill(Color.black.opacity(0.5))
-                                    )
-                                    .overlay(
-                                        Circle()
-                                            .stroke(viewModel.selectedLens?.id == lens.id ? Color.yellow : Color.white.opacity(0.2), lineWidth: 1)
-                                    )
-                            }
-                        }
-                    }
-                    .padding(.bottom, 8)
-                    .transition(.opacity)
-                }
-                
-                //MARK: exposure sliders
-                if isoWheelActive {
-                    let min = Int(viewModel.minISO)
-                    let max = Int(viewModel.maxISO)
-                    let isoValues = Array(stride(from: min, through: max, by: 50))
-                    
-                    ExposureSliderView(tickValues: isoValues, viewModel: viewModel, exposureType: .iso)
-                        .padding(.bottom, 10)
-                        .padding(.horizontal, 40)
-                        .onTapGesture {
-                            // Prevent tap propagation
-                        }
-                        .transition(.asymmetric(
-                            insertion: .move(edge: .bottom).combined(with: .opacity),
-                            removal: .move(edge: .bottom).combined(with: .opacity)
-                        ))
-                    
-                } else if ssWheelActive {
-                    
-                    let min = viewModel.minShutterSpeed
-                    let max = viewModel.maxShutterSpeed
-                    let ssValues = Array(stride(from: min, through: max, by: 10))
-                    
-                    ExposureSliderView(tickValues: ssValues, viewModel: viewModel, exposureType: .shutterSpeed)
-                        .padding(.bottom, 10)
-                        .padding(.horizontal, 40)
-                        .onTapGesture {
-                            // Prevent tap propagation
-                        }
-                        .transition(.asymmetric(
-                            insertion: .move(edge: .bottom).combined(with: .opacity),
-                            removal: .move(edge: .bottom).combined(with: .opacity)
-                        ))
-                    
-                } else {
-                    
-                    //MARK: exp settings toolbar
-                    HStack(alignment: .center, spacing: 20) {
-                        
-                        // Configuration Button (opens Modal)
-                        Button(action: {
-                            isConfigModalPresented = true
-                        }) {
-                            Image(systemName: "gearshape.fill")
-                                .font(.system(size: 18, weight: .medium))
-                                .foregroundColor(.white)
-                        }
-                        
-                        // Flash button
-                        Button(action: {
-                            flashOn.toggle()
-                            viewModel.setupTorch(flashOn)
-                        }) {
-                            Image(systemName: flashOn ? "bolt.fill" : "bolt.slash.fill")
-                                .font(.system(size: 18, weight: .medium))
-                                .foregroundColor(.white)
-                        }
-                        
-                        // Auto/Manual Exposure Mode Toggle Button
-                        Button(action: {
-                            viewModel.isAutoExposure.toggle()
-                        }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: viewModel.isAutoExposure ? "a.circle.fill" : "m.circle.fill")
-                                    .font(.system(size: 20, weight: .semibold))
-                                    .foregroundColor(viewModel.isAutoExposure ? .yellow : .white)
-                                Text(viewModel.isAutoExposure ? "Auto" : "Manual")
-                                    .font(.system(size: 13, weight: .bold))
-                                    .foregroundColor(.white)
-                            }
-                        }
-                        
-                        // ISO button
-                        Button(action: {
-                            if !viewModel.isAutoExposure {
-                                isoWheelActive = true
-                            }
-                        }) {
-                            HStack(spacing: 4) {
-                                Image("isoIcon")
-                                    .renderingMode(.template)
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fit)
-                                    .frame(height: 22)
-                                    .foregroundColor(viewModel.isAutoExposure ? .gray : .white)
-                                Text(viewModel.isAutoExposure ? "Auto" : String(Int(viewModel.iso)))
-                                    .font(.system(size: 15, weight: .medium))
-                                    .foregroundColor(viewModel.isAutoExposure ? .gray : .white)
-                            }
-                        }
-                        .disabled(viewModel.isAutoExposure)
-                        
-                        // Shutter Speed Button
-                        Button(action: {
-                            if !viewModel.isAutoExposure {
-                                ssWheelActive = true
-                            }
-                        }) {
-                            HStack(spacing: 4) {
-                                Image(systemName: "stopwatch")
-                                    .font(.system(size: 16, weight: .medium))
-                                    .foregroundColor(viewModel.isAutoExposure ? .gray : .white)
-                                Text(viewModel.isAutoExposure ? "Auto" : "1/\(Int(viewModel.shutterSpeed.timescale))s")
-                                    .font(.system(size: 15, weight: .medium))
-                                    .foregroundColor(viewModel.isAutoExposure ? .gray : .white)
-                            }
-                        }
-                        .disabled(viewModel.isAutoExposure)
-                        
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 25)
-                            .fill(Color.black.opacity(0.35))
-                            .background(
-                                RoundedRectangle(cornerRadius: 25)
-                                    .fill(.ultraThinMaterial)
-                            )
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 25)
-                            .stroke(Color.white.opacity(0.2), lineWidth: 0.5)
-                    )
-                    .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: 4)
-                    .padding(.bottom, 20)
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .bottom).combined(with: .opacity),
-                        removal: .move(edge: .bottom).combined(with: .opacity)
-                    ))
-                }
-                
-                
-                // MARK: bottom Controls
+            VStack(spacing: 0) {
+                // Top Bar - Flash and Config icons only, sized just big enough for them
                 HStack {
-                    
-                    // Gallery Button (Thumbnail preview)
                     Button(action: {
-                        viewModel.openLastPhotoInSystemGallery()
-                        #if !targetEnvironment(simulator)
-                        let generator = UIImpactFeedbackGenerator(style: .light)
-                        generator.prepare()
-                        generator.impactOccurred()
-                        #endif
+                        isConfigModalPresented = true
                     }) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(Color.black.opacity(0.6))
-                                .frame(width: 60, height: 60)
-                                .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 4)
-                            
-                            if let thumbnail = viewModel.lastCapturedThumbnail {
-                                Image(uiImage: thumbnail)
-                                    .resizable()
-                                    .aspectRatio(contentMode: .fill)
-                                    .frame(width: 60, height: 60)
-                                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                                    .transition(.asymmetric(
-                                        insertion: .opacity.combined(with: .scale(scale: 1.1)),
-                                        removal: .identity
-                                    ))
-                                    .id(UUID())
-                            }
-                                
-                            if viewModel.pendingProcessingCount > 0 {
-                                Color.black.opacity(0.4)
-                                    .frame(width: 60, height: 60)
-                                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                                
-                                ZStack {
-                                    ProgressView()
-                                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                                        .scaleEffect(1.6)
-                                    
-                                    Text("\(viewModel.pendingProcessingCount)")
-                                        .foregroundColor(.white)
-                                        .font(.system(size: 12, weight: .bold))
-                                }
-                            } else {
-                                Text("\(captureCount)")
-                                    .foregroundColor(.white)
-                                    .font(.system(size: 16, weight: .medium))
-                                    .shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 1)
-                            }
-                        }
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(Color.white.opacity(0.3), lineWidth: 1)
-                        )
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(size: 22))
+                            .foregroundColor(.white)
                     }
-                    .buttonStyle(PlainButtonStyle())
-                    .animation(.spring(response: 0.3), value: viewModel.lastCapturedThumbnail)
-                    
-                    
                     
                     Spacer()
                     
-                    // MARK: Capture button
                     Button(action: {
-                        viewModel.capturePhoto(false, false, nil)
-                        captureCount += 1
+                        flashOn.toggle()
+                        viewModel.setupTorch(flashOn)
                     }) {
-                        Image("captureButton")
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 115, height: 115)
+                        Image(systemName: flashOn ? "bolt.fill" : "bolt.slash.fill")
+                            .font(.system(size: 20, weight: .medium))
+                            .foregroundColor(.white)
                     }
-                    .accessibilityIdentifier("captureButton")
-                    
-                    Spacer()
-                    
-                    // Rotate Camera Button
-                    Button(action: {
-                        viewModel.toggleCameraPosition()
-                        triggerCameraHapticFeedback()
-                    }) {
-                        ZStack {
-                            Circle()
-                                .fill(Color.black.opacity(0.6))
-                                .frame(width: 60, height: 60)
-                                .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 4)
-                            
-                            Image(systemName: "arrow.triangle.2.circlepath.camera")
-                                .font(.system(size: 22))
-                                .foregroundColor(.white)
-                        }
-                        .overlay(
-                            Circle()
-                                .stroke(Color.white.opacity(0.3), lineWidth: 1)
-                        )
-                    }
-                        
-                    
                 }
-                .padding(.horizontal, 30)
-                .padding(.bottom, 30)
+                .padding(.horizontal, 24)
+                .frame(height: 44)
+                .background(Color.black)
+                
+                Spacer()
+                    .frame(height: UIScreen.main.bounds.width * 4 / 3)
+                
+                // Bottom Space - Lens switcher, exposure settings, and controls
+                VStack(spacing: 16) {
+                    // 1. Lens Switcher (0.5x, 1x, Tele)
+                    if !isoWheelActive && !ssWheelActive && viewModel.cameraPosition == .back && viewModel.availableLenses.count > 1 {
+                        HStack(spacing: 16) {
+                            ForEach(viewModel.availableLenses) { lens in
+                                Button(action: {
+                                    viewModel.selectedLens = lens
+                                    triggerCameraHapticFeedback()
+                                }) {
+                                    Text(lens.displayName)
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundColor(viewModel.selectedLens?.id == lens.id ? .yellow : .white)
+                                        .frame(width: 44, height: 44)
+                                        .background(
+                                            Circle()
+                                                .fill(Color.black.opacity(0.5))
+                                        )
+                                        .overlay(
+                                            Circle()
+                                                .stroke(viewModel.selectedLens?.id == lens.id ? Color.yellow : Color.white.opacity(0.2), lineWidth: 1)
+                                        )
+                                }
+                            }
+                        }
+                        .transition(.opacity)
+                    }
+                    
+                    // 2. Exposure settings / Sliders
+                    if isoWheelActive {
+                        let min = Int(viewModel.minISO)
+                        let max = Int(viewModel.maxISO)
+                        let isoValues = Array(stride(from: min, through: max, by: 50))
+                        
+                        ExposureSliderView(tickValues: isoValues, viewModel: viewModel, exposureType: .iso)
+                            .padding(.bottom, 10)
+                            .padding(.horizontal, 40)
+                            .onTapGesture {}
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .bottom).combined(with: .opacity),
+                                removal: .move(edge: .bottom).combined(with: .opacity)
+                            ))
+                        
+                    } else if ssWheelActive {
+                        let min = viewModel.minShutterSpeed
+                        let max = viewModel.maxShutterSpeed
+                        let ssValues = Array(stride(from: min, through: max, by: 10))
+                        
+                        ExposureSliderView(tickValues: ssValues, viewModel: viewModel, exposureType: .shutterSpeed)
+                            .padding(.bottom, 10)
+                            .padding(.horizontal, 40)
+                            .onTapGesture {}
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .bottom).combined(with: .opacity),
+                                removal: .move(edge: .bottom).combined(with: .opacity)
+                            ))
+                        
+                    } else {
+                        // Exposure settings toolbar (excluding Config/Flash)
+                        HStack(alignment: .center, spacing: 20) {
+                            Button(action: {
+                                viewModel.isAutoExposure.toggle()
+                            }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: viewModel.isAutoExposure ? "a.circle.fill" : "m.circle.fill")
+                                        .font(.system(size: 20, weight: .semibold))
+                                        .foregroundColor(viewModel.isAutoExposure ? .yellow : .white)
+                                    Text(viewModel.isAutoExposure ? "Auto" : "Manual")
+                                        .font(.system(size: 13, weight: .bold))
+                                        .foregroundColor(.white)
+                                }
+                            }
+                            
+                            Spacer()
+                            
+                            Button(action: {
+                                if !viewModel.isAutoExposure {
+                                    isoWheelActive = true
+                                }
+                            }) {
+                                HStack(spacing: 4) {
+                                    Image("isoIcon")
+                                        .renderingMode(.template)
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fit)
+                                        .frame(height: 22)
+                                        .foregroundColor(viewModel.isAutoExposure ? .gray : .white)
+                                    Text(viewModel.isAutoExposure ? "Auto" : String(Int(viewModel.iso)))
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundColor(viewModel.isAutoExposure ? .gray : .white)
+                                }
+                            }
+                            .disabled(viewModel.isAutoExposure)
+                            
+                            Button(action: {
+                                if !viewModel.isAutoExposure {
+                                    ssWheelActive = true
+                                }
+                            }) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "stopwatch")
+                                        .font(.system(size: 16, weight: .medium))
+                                        .foregroundColor(viewModel.isAutoExposure ? .gray : .white)
+                                    Text(viewModel.isAutoExposure ? "Auto" : "1/\(Int(viewModel.shutterSpeed.timescale))s")
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundColor(viewModel.isAutoExposure ? .gray : .white)
+                                }
+                            }
+                            .disabled(viewModel.isAutoExposure)
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 25)
+                                .fill(Color.black.opacity(0.35))
+                                .background(
+                                    RoundedRectangle(cornerRadius: 25)
+                                        .fill(.ultraThinMaterial)
+                                )
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 25)
+                                .stroke(Color.white.opacity(0.2), lineWidth: 0.5)
+                        )
+                        .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: 4)
+                        .padding(.bottom, 10)
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .bottom).combined(with: .opacity),
+                            removal: .move(edge: .bottom).combined(with: .opacity)
+                        ))
+                    }
+                    
+                    // 3. Shutter and bottom options
+                    HStack {
+                        // Gallery Button (Thumbnail preview)
+                        Button(action: {
+                            viewModel.openLastPhotoInSystemGallery()
+                            #if !targetEnvironment(simulator)
+                            let generator = UIImpactFeedbackGenerator(style: .light)
+                            generator.prepare()
+                            generator.impactOccurred()
+                            #endif
+                        }) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(Color.black.opacity(0.6))
+                                    .frame(width: 60, height: 60)
+                                    .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 4)
+                                
+                                if let thumbnail = viewModel.lastCapturedThumbnail {
+                                    Image(uiImage: thumbnail)
+                                        .resizable()
+                                        .aspectRatio(contentMode: .fill)
+                                        .frame(width: 60, height: 60)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                        .transition(.asymmetric(
+                                            insertion: .opacity.combined(with: .scale(scale: 1.1)),
+                                            removal: .identity
+                                        ))
+                                        .id(UUID())
+                                }
+                                    
+                                if viewModel.pendingProcessingCount > 0 {
+                                    Color.black.opacity(0.4)
+                                        .frame(width: 60, height: 60)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                    
+                                    ZStack {
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                            .scaleEffect(1.6)
+                                        
+                                        Text("\(viewModel.pendingProcessingCount)")
+                                            .foregroundColor(.white)
+                                            .font(.system(size: 12, weight: .bold))
+                                    }
+                                } else {
+                                    Text("\(captureCount)")
+                                        .foregroundColor(.white)
+                                        .font(.system(size: 16, weight: .medium))
+                                        .shadow(color: .black.opacity(0.8), radius: 2, x: 0, y: 1)
+                                }
+                            }
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .animation(.spring(response: 0.3), value: viewModel.lastCapturedThumbnail)
+                        
+                        Spacer()
+                        
+                        // Capture button
+                        Button(action: {
+                            viewModel.capturePhoto(false, false, nil)
+                            captureCount += 1
+                        }) {
+                            Image("captureButton")
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 90, height: 90)
+                        }
+                        .accessibilityIdentifier("captureButton")
+                        
+                        Spacer()
+                        
+                        // Rotate Camera Button
+                        Button(action: {
+                            viewModel.toggleCameraPosition()
+                            triggerCameraHapticFeedback()
+                        }) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.black.opacity(0.6))
+                                    .frame(width: 60, height: 60)
+                                    .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 4)
+                                
+                                Image(systemName: "arrow.triangle.2.circlepath.camera")
+                                    .font(.system(size: 22))
+                                    .foregroundColor(.white)
+                            }
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 30)
+                }
+                .padding(.bottom, 15)
+                .background(Color.black)
             }
             .animation(.spring(response: 0.5, dampingFraction: 0.8), value: isoWheelActive)
             .animation(.spring(response: 0.5, dampingFraction: 0.8), value: ssWheelActive)
-            
         }
-        .onAppear{
-            
-            //setup camera
+        .onAppear {
             viewModel.setupCamera(false, nil) { result in
                 switch result {
                 case .success:
@@ -336,10 +324,15 @@ struct ContentView: View {
         .sheet(isPresented: $isConfigModalPresented) {
             ConfigView(viewModel: viewModel)
         }
-
     }
     
-    
+    func safeAreaInsets() -> UIEdgeInsets {
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let window = windowScene.windows.first {
+            return window.safeAreaInsets
+        }
+        return .zero
+    }
     
     // Helper function to trigger haptic feedback
     func triggerCameraHapticFeedback() {
@@ -364,7 +357,10 @@ class UICameraPreviewView: UIView {
     
     override func layoutSubviews() {
         super.layoutSubviews()
-        previewLayer.frame = bounds
+        let screenWidth = bounds.width
+        let safeAreaTop = self.safeAreaInsets.top
+        let topBarHeight = safeAreaTop + 44
+        previewLayer.frame = CGRect(x: 0, y: topBarHeight, width: screenWidth, height: screenWidth * 4.0 / 3.0)
     }
 }
 
