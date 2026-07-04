@@ -9,6 +9,7 @@ import AVFoundation
 import SwiftUI
 import Photos
 import Combine
+import ImageIO
 
 class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
     var captureSession: AVCaptureSession?
@@ -305,6 +306,7 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
     
     
     //delegate method for processing captured photo
+    //delegate method for processing captured photo
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         if let error = error {
             print("Error capturing photo: \(error)")
@@ -323,6 +325,143 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
         
         // Generate thumbnail from RAW data
         generateThumbnail(from: photoData)
+        
+        // Run pichromatic pipeline on the raw DNG bytes
+        photoData.withUnsafeBytes { (rawBufferPointer: UnsafeRawBufferPointer) in
+            guard let baseAddress = rawBufferPointer.baseAddress else { return }
+            let bytesPointer = baseAddress.assumingMemoryBound(to: UInt8.self)
+            
+            // 1. Decode raw image
+            print("Decoding raw image using Rust library...")
+            guard let rustImage = get_raw_img(bytesPointer, photoData.count) else {
+                print("Failed to decode raw image using Rust")
+                return
+            }
+            
+            // 2. Parse config TOML
+            let configToml = """
+            #### Pixel Pipeline ####
+
+            [[pipeline_modules]]
+            name = "Demosaic"
+            algorithm = "Markesteijn"
+
+            # algorithm = "fast"
+
+            # [[pipeline_modules]]
+            # name = "Crop"
+            # factor = 1
+            # point = [0, 0]
+            # size = [1, 1]
+            # view_window = [1920, 1080]
+
+            [[pipeline_modules]]
+            name = "CFACoeffs"
+
+            [[pipeline_modules]]
+            name = "HighlightReconstruction"
+
+
+
+            [[pipeline_modules]]
+            name = "Exp"
+            ev = 1
+
+            [[pipeline_modules]]
+            name = "Contrast"
+            c = 1.1
+
+            [[pipeline_modules]]
+            name = "CST"
+            target_color_space = "XyzD65"
+
+
+            # # [[pipeline_modules]]
+            # # name = "ChromaDenoise"
+            # # a = 1
+            # # b = 1
+            # # strength = 0.1
+
+            [[pipeline_modules]]
+            name = "LCH"
+            lc = 1
+            cc = 1
+            hc = 1
+
+            [[pipeline_modules]]
+            name = "ToneMap"
+            # c = 6
+
+            [[pipeline_modules]]
+            name = "CST"
+            target_color_space = "Srgb"
+
+            """
+            
+            print("Parsing pipeline config...")
+            let configData = configToml.data(using: .utf8)!
+            configData.withUnsafeBytes { (configBuffer: UnsafeRawBufferPointer) in
+                guard let configAddress = configBuffer.baseAddress else { return }
+                let configBytes = configAddress.assumingMemoryBound(to: UInt8.self)
+                
+                guard let pipeline = get_pixel_pipeline_c(configBytes, configData.count) else {
+                    print("Failed to parse pipeline config")
+                    free_image_c(rustImage)
+                    return
+                }
+                
+                // 3. Run pipeline
+                print("Running pixel pipeline...")
+                _ = run_pixel_pipeline_c(rustImage, pipeline)
+                
+                // 4. Retrieve RGB buffer
+                var outWidth: Int = 0
+                var outHeight: Int = 0
+                var outLen: Int = 0
+                print("Retrieving RGB data...")
+                if let rgbPtr = get_image_rgb_data_c(rustImage, &outWidth, &outHeight, &outLen) {
+                    print("RGB retrieved: \(outWidth)x\(outHeight), size: \(outLen) bytes")
+                    
+                    // 5. Convert to UIImage with correct EXIF orientation
+                    let exifOrientationVal = (photo.metadata[kCGImagePropertyOrientation as String] as? NSNumber)?.int32Value ?? 1
+                    let imageOrientation = self.uiImageOrientation(from: exifOrientationVal)
+                    print("EXIF orientation: \(exifOrientationVal), mapped to Swift orientation: \(imageOrientation)")
+                    
+                    if let uiImage = uiImageFromRGBBytes(bytes: rgbPtr, width: outWidth, height: outHeight, orientation: imageOrientation) {
+                        print("Successfully created processed UIImage")
+                        
+                        // 6. Save processed image to gallery
+                        PHPhotoLibrary.requestAuthorization { status in
+                            if status == .authorized {
+                                PHPhotoLibrary.shared().performChanges({
+                                    PHAssetChangeRequest.creationRequestForAsset(from: uiImage)
+                                }) { success, error in
+                                    if success {
+                                        print("Processed image saved to gallery successfully!")
+                                    } else if let error = error {
+                                        print("Error saving processed image to gallery: \(error)")
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        print("Failed to create UIImage from RGB bytes")
+                    }
+                    
+                    // Free the leaked RGB buffer
+                    let mutableRgbPtr = UnsafeMutablePointer<UInt8>(mutating: rgbPtr)
+                    free_rgb_buffer_c(mutableRgbPtr, outLen)
+                } else {
+                    print("Failed to retrieve RGB data from processed image")
+                }
+                
+                // Free pipeline
+                free_pipeline_c(pipeline)
+            }
+            
+            // Free Rust image
+            free_image_c(rustImage)
+        }
         
         //save to photo library
         PHPhotoLibrary.requestAuthorization { status in
@@ -354,6 +493,48 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
         
         DispatchQueue.main.async {
             self.isCapturing = false
+        }
+    }
+    
+    private func uiImageFromRGBBytes(bytes: UnsafePointer<UInt8>, width: Int, height: Int, orientation: UIImage.Orientation) -> UIImage? {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue)
+        let buffer = UnsafeMutablePointer<UInt8>(mutating: bytes)
+        
+        guard let providerRef = CGDataProvider(dataInfo: nil, data: buffer, size: width * height * 3, releaseData: { (_, _, _) in }) else {
+            return nil
+        }
+        
+        guard let cgImage = CGImage(
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 24,
+            bytesPerRow: width * 3,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo,
+            provider: providerRef,
+            decode: nil,
+            shouldInterpolate: true,
+            intent: .defaultIntent
+        ) else {
+            return nil
+        }
+        
+        return UIImage(cgImage: cgImage, scale: 1.0, orientation: orientation)
+    }
+    
+    private func uiImageOrientation(from exifOrientation: Int32) -> UIImage.Orientation {
+        switch exifOrientation {
+        case 1: return .up
+        case 2: return .upMirrored
+        case 3: return .down
+        case 4: return .downMirrored
+        case 5: return .leftMirrored
+        case 6: return .right
+        case 7: return .rightMirrored
+        case 8: return .left
+        default: return .up
         }
     }
     

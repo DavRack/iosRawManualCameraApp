@@ -6,10 +6,14 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		AF91E1222EFCC6D5001A3BFE /* libpichromatic_pipeline.a in Frameworks */ = {isa = PBXBuildFile; fileRef = AF91E1212EFCC6D5001A3BFE /* libpichromatic_pipeline.a */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		42EB5D202E9F134600AF3197 /* iosManualRawCamera.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iosManualRawCamera.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AF91E1202EFCC6BE001A3BFE /* pichromaticlib.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = pichromaticlib.h; path = "../../imops/pichromatic-pipeline/target/pichromaticlib.h"; sourceTree = "<group>"; };
-		AF91E1212EFCC6D5001A3BFE /* libpichromatic_pipeline.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libpichromatic_pipeline.a; path = "../../imops/pichromatic-pipeline/target/aarch64-apple-ios/release/libpichromatic_pipeline.a"; sourceTree = "<group>"; };
+		AF91E1212EFCC6D5001A3BFE /* libpichromatic_pipeline.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libpichromatic_pipeline.a; path = libpichromatic_pipeline.a; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -38,6 +42,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AF91E1222EFCC6D5001A3BFE /* libpichromatic_pipeline.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -298,7 +303,11 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.iosManualRawCamera;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(PROJECT_DIR)/../../imops/pichromatic-pipeline/target/aarch64-apple-ios/release";
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*][arch=arm64]" = "$(PROJECT_DIR)/../../imops/pichromatic-pipeline/target/aarch64-apple-ios-sim/release";
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*][arch=x86_64]" = "$(PROJECT_DIR)/../../imops/pichromatic-pipeline/target/x86_64-apple-ios/release";
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "iosManualRawCamera/iosManualRawCamera-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -329,7 +338,11 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.iosManualRawCamera;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(PROJECT_DIR)/../../imops/pichromatic-pipeline/target/aarch64-apple-ios/release";
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*][arch=arm64]" = "$(PROJECT_DIR)/../../imops/pichromatic-pipeline/target/aarch64-apple-ios-sim/release";
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*][arch=x86_64]" = "$(PROJECT_DIR)/../../imops/pichromatic-pipeline/target/x86_64-apple-ios/release";
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "iosManualRawCamera/iosManualRawCamera-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
