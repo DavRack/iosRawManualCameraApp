@@ -21,6 +21,7 @@ struct ContentView: View {
     @State private var isoWheelActive = false
     @State private var ssWheelActive = false
     @State private var isConfigModalPresented = false
+    @State private var showGrid = UserDefaults.standard.bool(forKey: "showGrid")
     
     
     var body: some View {
@@ -46,14 +47,24 @@ struct ContentView: View {
             }
             
             VStack(spacing: 0) {
-                // Top Bar - Flash and Config icons only, sized just big enough for them
-                HStack {
+                // Top Bar - Flash, Config and Grid icons, sized just big enough for them
+                HStack(spacing: 20) {
                     Button(action: {
                         isConfigModalPresented = true
                     }) {
                         Image(systemName: "gearshape.fill")
                             .font(.system(size: 22))
                             .foregroundColor(.white)
+                    }
+                    
+                    Button(action: {
+                        showGrid.toggle()
+                        UserDefaults.standard.set(showGrid, forKey: "showGrid")
+                        triggerCameraHapticFeedback()
+                    }) {
+                        Image(systemName: showGrid ? "grid" : "grid.circle")
+                            .font(.system(size: 22))
+                            .foregroundColor(showGrid ? .yellow : .white)
                     }
                     
                     Spacer()
@@ -71,8 +82,15 @@ struct ContentView: View {
                 .frame(height: 44)
                 .background(Color.black)
                 
-                Spacer()
-                    .frame(height: UIScreen.main.bounds.width * 4 / 3)
+                ZStack {
+                    Spacer()
+                        .frame(height: UIScreen.main.bounds.width * 4 / 3)
+                    
+                    if showGrid {
+                        GridView()
+                    }
+                }
+                .frame(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.width * 4 / 3)
                 
                 // Bottom Space - Lens switcher, exposure settings, and controls
                 VStack(spacing: 16) {
@@ -444,6 +462,39 @@ struct ConfigView: View {
                 }
             }
         }
+    }
+}
+
+
+struct GridView: View {
+    var body: some View {
+        GeometryReader { geometry in
+            let w = geometry.size.width
+            let h = geometry.size.height
+            
+            ZStack {
+                // Vertical lines
+                Path { path in
+                    path.move(to: CGPoint(x: w / 3, y: 0))
+                    path.addLine(to: CGPoint(x: w / 3, y: h))
+                    
+                    path.move(to: CGPoint(x: 2 * w / 3, y: 0))
+                    path.addLine(to: CGPoint(x: 2 * w / 3, y: h))
+                }
+                .stroke(Color.white.opacity(0.4), lineWidth: 1)
+                
+                // Horizontal lines
+                Path { path in
+                    path.move(to: CGPoint(x: 0, y: h / 3))
+                    path.addLine(to: CGPoint(x: w, y: h / 3))
+                    
+                    path.move(to: CGPoint(x: 0, y: 2 * h / 3))
+                    path.addLine(to: CGPoint(x: w, y: 2 * h / 3))
+                }
+                .stroke(Color.white.opacity(0.4), lineWidth: 1)
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 
