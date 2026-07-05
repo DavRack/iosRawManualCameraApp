@@ -85,16 +85,12 @@ struct ContentView: View {
                                     triggerCameraHapticFeedback()
                                 }) {
                                     Text(lens.displayName)
-                                        .font(.system(size: 11, weight: .bold))
-                                        .foregroundColor(viewModel.selectedLens?.id == lens.id ? .yellow : .white)
-                                        .frame(width: 44, height: 44)
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundColor(viewModel.selectedLens?.id == lens.id ? .black : .white)
+                                        .frame(width: 50, height: 36)
                                         .background(
-                                            Circle()
-                                                .fill(Color.black.opacity(0.5))
-                                        )
-                                        .overlay(
-                                            Circle()
-                                                .stroke(viewModel.selectedLens?.id == lens.id ? Color.yellow : Color.white.opacity(0.2), lineWidth: 1)
+                                            RoundedRectangle(cornerRadius: 6)
+                                                .fill(viewModel.selectedLens?.id == lens.id ? Color.yellow : Color.white.opacity(0.15))
                                         )
                                 }
                             }
@@ -104,9 +100,17 @@ struct ContentView: View {
                     
                     // 2. Exposure settings / Sliders
                     if isoWheelActive {
-                        let min = Int(viewModel.minISO)
-                        let max = Int(viewModel.maxISO)
-                        let isoValues = Array(stride(from: min, through: max, by: 50))
+                        let isoValues: [Int] = {
+                            let min = Int(viewModel.minISO)
+                            let max = Int(viewModel.maxISO)
+                            let standardISOs = [25, 32, 40, 50, 64, 80, 100, 125, 160, 200, 250, 320, 400, 500, 640, 800, 1000, 1250, 1600, 2000, 2500, 3200, 4000, 5000, 6400, 8000, 10000, 12800, 25600]
+                            var filtered = standardISOs.filter { $0 >= min && $0 <= max }
+                            if !filtered.contains(min) { filtered.append(min) }
+                            if !filtered.contains(max) { filtered.append(max) }
+                            let current = Int(viewModel.iso)
+                            if !filtered.contains(current) { filtered.append(current) }
+                            return filtered.sorted()
+                        }()
                         
                         ExposureSliderView(tickValues: isoValues, viewModel: viewModel, exposureType: .iso)
                             .padding(.bottom, 10)
@@ -118,9 +122,20 @@ struct ContentView: View {
                             ))
                         
                     } else if ssWheelActive {
-                        let min = viewModel.minShutterSpeed
-                        let max = viewModel.maxShutterSpeed
-                        let ssValues = Array(stride(from: min, through: max, by: 10))
+                        let ssValues: [Int] = {
+                            let min = viewModel.minShutterSpeed
+                            let max = viewModel.maxShutterSpeed
+                            let standardSS = [
+                                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 25, 28, 30, 35, 40, 45, 50, 55, 60, 70, 80, 90, 100,
+                                125, 160, 200, 250, 320, 400, 500, 640, 800, 1000, 1250, 1600, 2000, 2500, 3200, 4000, 5000, 6400, 8000, 10000, 12000
+                            ]
+                            var filtered = standardSS.filter { $0 >= min && $0 <= max }
+                            if !filtered.contains(min) { filtered.append(min) }
+                            if !filtered.contains(max) { filtered.append(max) }
+                            let current = Int(viewModel.shutterSpeed.timescale)
+                            if !filtered.contains(current) { filtered.append(current) }
+                            return filtered.sorted()
+                        }()
                         
                         ExposureSliderView(tickValues: ssValues, viewModel: viewModel, exposureType: .shutterSpeed)
                             .padding(.bottom, 10)
@@ -149,57 +164,61 @@ struct ContentView: View {
                             
                             Spacer()
                             
-                            Button(action: {
-                                if !viewModel.isAutoExposure {
-                                    isoWheelActive = true
+                            if viewModel.isAutoExposure {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "plusminus.circle")
+                                        .foregroundColor(.white)
+                                        .font(.system(size: 16))
+                                    Slider(value: $viewModel.exposureCompensation, in: -3.0...3.0, step: 0.3)
+                                        .accentColor(.yellow)
+                                    Text(String(format: "%+.1f", viewModel.exposureCompensation))
+                                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                                        .foregroundColor(.white)
+                                        .frame(width: 35, alignment: .trailing)
                                 }
-                            }) {
-                                HStack(spacing: 4) {
-                                    Image("isoIcon")
-                                        .renderingMode(.template)
-                                        .resizable()
-                                        .aspectRatio(contentMode: .fit)
-                                        .frame(height: 22)
-                                        .foregroundColor(viewModel.isAutoExposure ? .gray : .white)
-                                    Text(viewModel.isAutoExposure ? "Auto" : String(Int(viewModel.iso)))
-                                        .font(.system(size: 15, weight: .medium))
-                                        .foregroundColor(viewModel.isAutoExposure ? .gray : .white)
+                                .contentShape(Rectangle())
+                                .onTapGesture(count: 2) {
+                                    viewModel.exposureCompensation = 0.0
+                                    triggerCameraHapticFeedback()
+                                }
+                                .frame(maxWidth: 180)
+                            } else {
+                                Button(action: {
+                                    if !viewModel.isAutoExposure {
+                                        isoWheelActive = true
+                                    }
+                                }) {
+                                    HStack(spacing: 4) {
+                                        Image("isoIcon")
+                                            .renderingMode(.template)
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fit)
+                                            .frame(height: 22)
+                                            .foregroundColor(.white)
+                                        Text(String(Int(viewModel.iso)))
+                                            .font(.system(size: 15, weight: .medium))
+                                            .foregroundColor(.white)
+                                    }
+                                }
+                                
+                                Button(action: {
+                                    if !viewModel.isAutoExposure {
+                                        ssWheelActive = true
+                                    }
+                                }) {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "stopwatch")
+                                            .font(.system(size: 16, weight: .medium))
+                                            .foregroundColor(.white)
+                                        Text("1/\(Int(viewModel.shutterSpeed.timescale))s")
+                                            .font(.system(size: 15, weight: .medium))
+                                            .foregroundColor(.white)
+                                    }
                                 }
                             }
-                            .disabled(viewModel.isAutoExposure)
-                            
-                            Button(action: {
-                                if !viewModel.isAutoExposure {
-                                    ssWheelActive = true
-                                }
-                            }) {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "stopwatch")
-                                        .font(.system(size: 16, weight: .medium))
-                                        .foregroundColor(viewModel.isAutoExposure ? .gray : .white)
-                                    Text(viewModel.isAutoExposure ? "Auto" : "1/\(Int(viewModel.shutterSpeed.timescale))s")
-                                        .font(.system(size: 15, weight: .medium))
-                                        .foregroundColor(viewModel.isAutoExposure ? .gray : .white)
-                                }
-                            }
-                            .disabled(viewModel.isAutoExposure)
                         }
                         .padding(.horizontal, 20)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 25)
-                                .fill(Color.black.opacity(0.35))
-                                .background(
-                                    RoundedRectangle(cornerRadius: 25)
-                                        .fill(.ultraThinMaterial)
-                                )
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 25)
-                                .stroke(Color.white.opacity(0.2), lineWidth: 0.5)
-                        )
-                        .shadow(color: .black.opacity(0.3), radius: 8, x: 0, y: 4)
-                        .padding(.bottom, 10)
+                        .padding(.vertical, 8)
                         .transition(.asymmetric(
                             insertion: .move(edge: .bottom).combined(with: .opacity),
                             removal: .move(edge: .bottom).combined(with: .opacity)
@@ -304,7 +323,8 @@ struct ContentView: View {
                     }
                     .padding(.horizontal, 30)
                 }
-                .padding(.bottom, 15)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 16)
                 .background(Color.black)
             }
             .animation(.spring(response: 0.5, dampingFraction: 0.8), value: isoWheelActive)

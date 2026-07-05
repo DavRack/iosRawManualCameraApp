@@ -75,6 +75,12 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
     
     @Published var isCapturing = false
     @Published var lastCapturedAssetLocalIdentifier: String?
+    @Published var exposureCompensation: Double = 0.0 {
+        didSet {
+            UserDefaults.standard.set(exposureCompensation, forKey: "exposureCompensation")
+            updateExposureSettings()
+        }
+    }
     @Published var isAutoExposure: Bool {
         didSet {
             UserDefaults.standard.set(isAutoExposure, forKey: "isAutoExposure")
@@ -112,12 +118,17 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
        } else {
            self.shutterSpeed = CMTime(value: 1, timescale: Int32(defaultShutterSpeed))
        }
-       
-       if let storedAutoExp = UserDefaults.standard.object(forKey: "isAutoExposure") as? Bool {
-           self.isAutoExposure = storedAutoExp
-       } else {
-           self.isAutoExposure = false
-       }
+              if let storedAutoExp = UserDefaults.standard.object(forKey: "isAutoExposure") as? Bool {
+            self.isAutoExposure = storedAutoExp
+        } else {
+            self.isAutoExposure = false
+        }
+        
+        if let storedEV = UserDefaults.standard.object(forKey: "exposureCompensation") as? Double {
+            self.exposureCompensation = storedEV
+        } else {
+            self.exposureCompensation = 0.0
+        }
        
        if let storedFormatRaw = UserDefaults.standard.string(forKey: "exportFormat"),
           let storedFormat = ExportFormat(rawValue: storedFormatRaw) {
@@ -254,6 +265,7 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
                 if self.isAutoExposure {
                     if device.isExposureModeSupported(.continuousAutoExposure) {
                         device.exposureMode = .continuousAutoExposure
+                        device.setExposureTargetBias(Float(self.exposureCompensation), completionHandler: nil)
                     }
                 } else {
                     device.exposureMode = .custom
@@ -382,7 +394,8 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
                 if self.isAutoExposure {
                     if device.isExposureModeSupported(.continuousAutoExposure) {
                         device.exposureMode = .continuousAutoExposure
-                        print("Exposure settings updated: Auto Exposure")
+                        device.setExposureTargetBias(Float(self.exposureCompensation), completionHandler: nil)
+                        print("Exposure settings updated: Auto Exposure (Bias: \(self.exposureCompensation))")
                     } else {
                         print("Continuous Auto Exposure not supported on this device")
                     }
@@ -541,6 +554,7 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
                 if self.isAutoExposure {
                     if newDevice.isExposureModeSupported(.continuousAutoExposure) {
                         newDevice.exposureMode = .continuousAutoExposure
+                        newDevice.setExposureTargetBias(Float(self.exposureCompensation), completionHandler: nil)
                     }
                 } else {
                     newDevice.exposureMode = .custom
@@ -602,6 +616,7 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
                 if self.isAutoExposure {
                     if device.isExposureModeSupported(.continuousAutoExposure) {
                         device.exposureMode = .continuousAutoExposure
+                        device.setExposureTargetBias(Float(self.exposureCompensation), completionHandler: nil)
                     }
                 } else {
                     device.exposureMode = .custom
@@ -639,9 +654,9 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
             let minDeviceISO = Double(device.activeFormat.minISO)
             let maxDeviceISO = Double(device.activeFormat.maxISO)
             
-            print(minDeviceISO)
-            self.minISO = ceil(minDeviceISO / 50.0) * 50.0 //round up to nearest 50
-            self.maxISO = floor(maxDeviceISO / 50.0) * 50.0 //round down to nearest 10
+            print("Device ISO bounds - Min: \(minDeviceISO), Max: \(maxDeviceISO)")
+            self.minISO = minDeviceISO
+            self.maxISO = maxDeviceISO
             
             let minDeviceSS = device.activeFormat.maxExposureDuration //slowest
             let maxDeviceSS = device.activeFormat.minExposureDuration //fastet

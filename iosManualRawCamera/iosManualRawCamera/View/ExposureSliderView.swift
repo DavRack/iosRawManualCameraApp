@@ -101,6 +101,13 @@ struct ExposureSliderView: View {
                                 if clampedIndex != currentTickIndex {
                                     currentTickIndex = clampedIndex
                                     
+                                    // Apply camera updates in real-time while dragging
+                                    if exposureType == .iso {
+                                        viewModel.iso = Double(tickValues[clampedIndex])
+                                    } else {
+                                        viewModel.shutterSpeed = CMTime(value: 1, timescale: Int32(tickValues[clampedIndex]))
+                                    }
+                                    
                                     #if !targetEnvironment(simulator)
                                     // Haptic feedback
                                     let impactFeedback = UIImpactFeedbackGenerator(style: .light)
@@ -110,13 +117,6 @@ struct ExposureSliderView: View {
                             }
                             .onEnded { _ in
                                 lastDragTranslation = 0
-                                
-                                //update camera settings
-                                if exposureType == .iso {
-                                    viewModel.iso = Double(currentValue)
-                                } else {
-                                    viewModel.shutterSpeed = CMTime(value: 1, timescale: Int32(currentValue))
-                                }
                             }
                     )
                 
