@@ -73,7 +73,7 @@ struct ContentView: View {
                     }) {
                         Image(systemName: showGrid ? "grid" : "grid.circle")
                             .font(.system(size: 22))
-                            .foregroundColor(showGrid ? .yellow : .white)
+                            .foregroundColor(showGrid ? Color(hex: "C0392B") : .white)
                     }
                     
                     Spacer()
@@ -89,7 +89,24 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 24)
                 .frame(height: 44)
-                .background(Color.black)
+                .background(
+                    LinearGradient(
+                        gradient: Gradient(colors: [Color(hex: "1C1B1B"), Color(hex: "131313")]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .overlay(
+                    VStack {
+                        Spacer()
+                        Rectangle()
+                            .fill(Color.black)
+                            .frame(height: 1)
+                        Rectangle()
+                            .fill(Color.white.opacity(0.05))
+                            .frame(height: 1)
+                    }
+                )
                 
                 ZStack {
                     // Camera preview placed directly in layout hierarchy, preventing touch interception
@@ -197,21 +214,18 @@ struct ContentView: View {
                                 }
                             }) {
                                 Text(focusMode.rawValue)
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(focusMode == .auto ? .white : .yellow)
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundColor(focusMode == .auto ? .white : Color(hex: "C0392B"))
                                     .frame(width: 48, height: 36)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .stroke(focusMode == .auto ? Color.white.opacity(0.3) : Color.yellow, lineWidth: 1.0)
-                                    )
                             }
+                            .buttonStyle(TactileButtonStyle(isSelected: focusMode == .point))
                             .padding(.leading, 16)
                             
                             Spacer()
                             
                             // Center: Lens Switcher (0.5x, 1x, Tele)
                             if viewModel.cameraPosition == .back && viewModel.availableLenses.count > 1 {
-                                HStack(spacing: 12) {
+                                HStack(spacing: 8) {
                                     ForEach(viewModel.availableLenses) { lens in
                                         Button(action: {
                                             viewModel.selectedLens = lens
@@ -219,14 +233,11 @@ struct ContentView: View {
                                             triggerCameraHapticFeedback()
                                         }) {
                                             Text(lens.displayName)
-                                                .font(.system(size: 12, weight: .bold))
-                                                .foregroundColor(viewModel.selectedLens?.id == lens.id ? .black : .white)
+                                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                                .foregroundColor(viewModel.selectedLens?.id == lens.id ? Color(hex: "C0392B") : .white)
                                                 .frame(width: 50, height: 36)
-                                                .background(
-                                                    RoundedRectangle(cornerRadius: 6)
-                                                        .fill(viewModel.selectedLens?.id == lens.id ? Color.yellow : Color.white.opacity(0.15))
-                                                )
                                         }
+                                        .buttonStyle(TactileButtonStyle(isSelected: viewModel.selectedLens?.id == lens.id))
                                     }
                                 }
                             }
@@ -268,14 +279,11 @@ struct ContentView: View {
                                 }
                             }) {
                                 Text(meteringMode.rawValue)
-                                    .font(.system(size: 8, weight: .bold))
-                                    .foregroundColor(meteringMode == .auto ? .white : .yellow)
+                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                    .foregroundColor(meteringMode == .auto ? .white : Color(hex: "C0392B"))
                                     .frame(width: 48, height: 36)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .stroke(meteringMode == .auto ? Color.white.opacity(0.3) : Color.yellow, lineWidth: 1.0)
-                                    )
                             }
+                            .buttonStyle(TactileButtonStyle(isSelected: meteringMode != .auto))
                             .padding(.trailing, 16)
                         }
                         .transition(.opacity)
@@ -334,15 +342,36 @@ struct ContentView: View {
                         HStack(alignment: .center, spacing: 20) {
                             Button(action: {
                                 viewModel.isAutoExposure.toggle()
+                                triggerCameraHapticFeedback()
                             }) {
-                                HStack(spacing: 4) {
-                                    Image(systemName: viewModel.isAutoExposure ? "a.circle.fill" : "m.circle.fill")
-                                        .font(.system(size: 20, weight: .semibold))
-                                        .foregroundColor(viewModel.isAutoExposure ? .yellow : .white)
-                                    Text(viewModel.isAutoExposure ? "Auto" : "Manual")
-                                        .font(.system(size: 13, weight: .bold))
+                                HStack(spacing: 8) {
+                                    ZStack(alignment: viewModel.isAutoExposure ? .trailing : .leading) {
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .fill(Color(hex: "0E0E0E"))
+                                            .frame(width: 32, height: 16)
+                                            .innerShadow(shape: RoundedRectangle(cornerRadius: 6), color: .black, radius: 1, offsetX: 0.5, offsetY: 0.5)
+                                        
+                                        Circle()
+                                            .fill(viewModel.isAutoExposure ? Color(hex: "C0392B") : Color(hex: "4E4E4E"))
+                                            .frame(width: 12, height: 12)
+                                            .padding(.horizontal, 2)
+                                            .shadow(color: .black.opacity(0.4), radius: 1, x: 0, y: 1)
+                                    }
+                                    
+                                    Text(viewModel.isAutoExposure ? "AUTO" : "MANUAL")
+                                        .font(.system(size: 11, weight: .bold, design: .monospaced))
                                         .foregroundColor(.white)
                                 }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(Color(hex: "1C1B1B"))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .stroke(Color.white.opacity(0.05), lineWidth: 0.5)
+                                        )
+                                )
                             }
                             
                             Spacer()
@@ -353,7 +382,7 @@ struct ContentView: View {
                                         .foregroundColor(.white)
                                         .font(.system(size: 16))
                                     Slider(value: $viewModel.exposureCompensation, in: -3.0...3.0, step: 0.3)
-                                        .accentColor(.yellow)
+                                        .accentColor(Color(hex: "C0392B"))
                                     Text(String(format: "%+.1f", viewModel.exposureCompensation))
                                         .font(.system(size: 13, weight: .bold, design: .monospaced))
                                         .foregroundColor(.white)
@@ -371,17 +400,22 @@ struct ContentView: View {
                                         isoWheelActive = true
                                     }
                                 }) {
-                                    HStack(spacing: 4) {
-                                        Image("isoIcon")
-                                            .renderingMode(.template)
-                                            .resizable()
-                                            .aspectRatio(contentMode: .fit)
-                                            .frame(height: 22)
-                                            .foregroundColor(.white)
+                                    HStack(spacing: 6) {
+                                        Text("ISO")
+                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                            .foregroundColor(Color(hex: "C5C7C1"))
+                                        
                                         Text(String(Int(viewModel.iso)))
-                                            .font(.system(size: 15, weight: .medium))
+                                            .font(.system(size: 14, weight: .bold, design: .monospaced))
                                             .foregroundColor(.white)
                                     }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .fill(Color(hex: "2A2A2A"))
+                                            .innerShadow(shape: RoundedRectangle(cornerRadius: 6), color: .black, radius: 1.5, offsetX: 0.5, offsetY: 0.5)
+                                    )
                                 }
                                 
                                 Button(action: {
@@ -389,14 +423,22 @@ struct ContentView: View {
                                         ssWheelActive = true
                                     }
                                 }) {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "stopwatch")
-                                            .font(.system(size: 16, weight: .medium))
-                                            .foregroundColor(.white)
+                                    HStack(spacing: 6) {
+                                        Text("SS")
+                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                            .foregroundColor(Color(hex: "C5C7C1"))
+                                        
                                         Text("1/\(Int(viewModel.shutterSpeed.timescale))s")
-                                            .font(.system(size: 15, weight: .medium))
+                                            .font(.system(size: 14, weight: .bold, design: .monospaced))
                                             .foregroundColor(.white)
                                     }
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .fill(Color(hex: "2A2A2A"))
+                                            .innerShadow(shape: RoundedRectangle(cornerRadius: 6), color: .black, radius: 1.5, offsetX: 0.5, offsetY: 0.5)
+                                    )
                                 }
                             }
                         }
@@ -475,10 +517,39 @@ struct ContentView: View {
                             viewModel.capturePhoto(false, false, nil)
                             captureCount += 1
                         }) {
-                            Image("captureButton")
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(width: 90, height: 90)
+                            ZStack {
+                                // Outer bezel ring (Metallic look)
+                                Circle()
+                                    .fill(LinearGradient(
+                                        gradient: Gradient(colors: [Color(hex: "4E4E4E"), Color(hex: "2A2A2A"), Color(hex: "1A1A1A")]),
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ))
+                                    .frame(width: 84, height: 84)
+                                    .shadow(color: .black.opacity(0.6), radius: 4, x: 0, y: 3)
+                                    
+                                // Inner recessed rim
+                                Circle()
+                                    .fill(Color(hex: "0E0E0E"))
+                                    .frame(width: 72, height: 72)
+                                    .innerShadow(shape: Circle(), color: .black, radius: 2, offsetX: 1, offsetY: 1)
+                                    
+                                // Inner crimson button core (tactile dome)
+                                Circle()
+                                    .fill(LinearGradient(
+                                        gradient: Gradient(colors: [Color(hex: "C0392B"), Color(hex: "A93226"), Color(hex: "78281F")]),
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ))
+                                    .frame(width: 62, height: 62)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                                    )
+                                    .shadow(color: .black.opacity(0.4), radius: 2, x: 0, y: 1.5)
+                            }
+                            .scaleEffect(viewModel.isCapturing ? 0.92 : 1.0)
+                            .animation(.spring(response: 0.2, dampingFraction: 0.6), value: viewModel.isCapturing)
                         }
                         .accessibilityIdentifier("captureButton")
                         
@@ -510,7 +581,24 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 16)
-                .background(Color.black)
+                .background(
+                    LinearGradient(
+                        gradient: Gradient(colors: [Color(hex: "1A1A1A"), Color(hex: "0E0E0E")]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .overlay(
+                    VStack {
+                        Rectangle()
+                            .fill(Color.black)
+                            .frame(height: 1)
+                        Rectangle()
+                            .fill(Color.white.opacity(0.08))
+                            .frame(height: 1)
+                        Spacer()
+                    }
+                )
             }
             .animation(.spring(response: 0.5, dampingFraction: 0.8), value: isoWheelActive)
             .animation(.spring(response: 0.5, dampingFraction: 0.8), value: ssWheelActive)
@@ -639,13 +727,13 @@ struct FocusIndicatorView: View {
             switch style {
             case .circle:
                 Circle()
-                    .stroke(Color.yellow, lineWidth: 1.5)
+                    .stroke(Color(hex: "C0392B"), lineWidth: 1.5)
             case .square:
                 Rectangle()
-                    .stroke(Color.yellow, lineWidth: 1.5)
+                    .stroke(Color(hex: "C0392B"), lineWidth: 1.5)
             case .squircle:
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.yellow, lineWidth: 1.5)
+                    .stroke(Color(hex: "C0392B"), lineWidth: 1.5)
             }
         }
         .frame(width: 70, height: 70)
@@ -741,4 +829,74 @@ struct GridView: View {
 }
 
 
+// MARK: - Skeuomorphic Design Extensions
 
+extension Color {
+    init(hex: String) {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let a, r, g, b: UInt64
+        switch hex.count {
+        case 3: // RGB (12-bit)
+            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+        case 6: // RGB (24-bit)
+            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+        case 8: // ARGB (32-bit)
+            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+        default:
+            (a, r, g, b) = (255, 0, 0, 0)
+        }
+        self.init(
+            .sRGB,
+            red: Double(r) / 255,
+            green: Double(g) / 255,
+            blue: Double(b) / 255,
+            opacity: Double(a) / 255
+        )
+    }
+}
+
+extension View {
+    func innerShadow<S: Shape>(shape: S, color: Color = .black.opacity(0.8), radius: CGFloat = 2, offsetX: CGFloat = 1, offsetY: CGFloat = 1) -> some View {
+        self.overlay(
+            shape
+                .stroke(color, lineWidth: radius)
+                .shadow(color: color, radius: radius, x: offsetX, y: offsetY)
+                .clipShape(shape)
+        )
+    }
+}
+
+struct TactileButtonStyle: ButtonStyle {
+    var isSelected: Bool = false
+    
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                Group {
+                    if isSelected {
+                        // Sunken (Recessed) state
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color(hex: "0E0E0E"))
+                            .innerShadow(shape: RoundedRectangle(cornerRadius: 6), color: .black, radius: 2, offsetX: 1, offsetY: 1)
+                    } else {
+                        // Raised state
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(LinearGradient(
+                                gradient: Gradient(colors: [Color(hex: "2A2A2A"), Color(hex: "1C1B1B")]),
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ))
+                            .shadow(color: Color.black.opacity(0.5), radius: 2, x: 0, y: 1.5)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+                            )
+                    }
+                }
+            )
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .animation(.spring(response: 0.15), value: configuration.isPressed)
+    }
+}
