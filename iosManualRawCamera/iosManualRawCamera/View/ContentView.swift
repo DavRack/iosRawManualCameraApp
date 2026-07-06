@@ -178,192 +178,170 @@ struct ContentView: View {
                 // Bottom Space - Lens switcher, exposure settings, and controls
                 VStack(spacing: 16) {
                     // 1. Bottom Control Row (Focus selector, Lenses, and future placeholder)
-                    if !isoWheelActive && !ssWheelActive {
-                        HStack {
-                            // Left: Focus Mode Selector
-                            Button(action: {
-                                triggerCameraHapticFeedback()
-                                if focusMode == .point {
-                                    focusMode = .auto
-                                    // Reset both focus and exposure back to center/defaults
-                                    viewModel.updateFocusAndExposure(
-                                        focusPoint: nil,
-                                        exposurePoint: (meteringMode == .spot) ? CGPoint(x: 0.5, y: 0.5) : nil,
-                                        isFocusPoint: false,
-                                        isExposurePoint: (meteringMode == .spot && viewModel.isAutoExposure)
-                                    )
-                                    initializeFocusSquare()
-                                } else {
-                                    focusMode = .point
-                                    // Center point coordinates in screen and device space
-                                    let screenWidth = UIScreen.main.bounds.width
-                                    focusSquarePosition = CGPoint(x: screenWidth / 2.0, y: (screenWidth * 4.0 / 3.0) / 2.0)
-                                    
-                                    let devicePoint = CGPoint(x: 0.5, y: 0.5)
-                                    viewModel.deviceFocusPoint = devicePoint
-                                    if meteringMode == .spot {
-                                        viewModel.deviceExposurePoint = devicePoint
-                                    }
-                                    
-                                    viewModel.updateFocusAndExposure(
-                                        focusPoint: devicePoint,
-                                        exposurePoint: (meteringMode == .spot && viewModel.isAutoExposure) ? devicePoint : nil,
-                                        isFocusPoint: true,
-                                        isExposurePoint: (meteringMode == .spot && viewModel.isAutoExposure)
-                                    )
+                    HStack {
+                        // Left: Focus Mode Selector
+                        Button(action: {
+                            triggerCameraHapticFeedback()
+                            if focusMode == .point {
+                                focusMode = .auto
+                                // Reset both focus and exposure back to center/defaults
+                                viewModel.updateFocusAndExposure(
+                                    focusPoint: nil,
+                                    exposurePoint: (meteringMode == .spot) ? CGPoint(x: 0.5, y: 0.5) : nil,
+                                    isFocusPoint: false,
+                                    isExposurePoint: (meteringMode == .spot && viewModel.isAutoExposure)
+                                )
+                                initializeFocusSquare()
+                            } else {
+                                focusMode = .point
+                                // Center point coordinates in screen and device space
+                                let screenWidth = UIScreen.main.bounds.width
+                                focusSquarePosition = CGPoint(x: screenWidth / 2.0, y: (screenWidth * 4.0 / 3.0) / 2.0)
+                                
+                                let devicePoint = CGPoint(x: 0.5, y: 0.5)
+                                viewModel.deviceFocusPoint = devicePoint
+                                if meteringMode == .spot {
+                                    viewModel.deviceExposurePoint = devicePoint
                                 }
-                            }) {
+                                
+                                viewModel.updateFocusAndExposure(
+                                    focusPoint: devicePoint,
+                                    exposurePoint: (meteringMode == .spot && viewModel.isAutoExposure) ? devicePoint : nil,
+                                    isFocusPoint: true,
+                                    isExposurePoint: (meteringMode == .spot && viewModel.isAutoExposure)
+                                )
+                            }
+                        }) {
+                            HStack(spacing: 3) {
+                                if viewModel.isFocusLocked {
+                                    Image(systemName: "lock.fill")
+                                        .font(.system(size: 8))
+                                        .foregroundColor(Color(hex: "C0392B"))
+                                }
                                 Text(focusMode.rawValue)
                                     .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                    .foregroundColor(focusMode == .auto ? .white : Color(hex: "C0392B"))
-                                    .frame(width: 48, height: 36)
+                                    .foregroundColor((focusMode == .auto && !viewModel.isFocusLocked) ? .white : Color(hex: "C0392B"))
                             }
-                            .buttonStyle(TactileButtonStyle(isSelected: focusMode == .point))
-                            .padding(.leading, 16)
-                            
-                            Spacer()
-                            
-                            // Center: Lens Switcher (0.5x, 1x, Tele)
-                            if viewModel.cameraPosition == .back && viewModel.availableLenses.count > 1 {
-                                HStack(spacing: 8) {
-                                    ForEach(viewModel.availableLenses) { lens in
-                                        Button(action: {
-                                            viewModel.selectedLens = lens
-                                            initializeFocusSquare()
-                                            triggerCameraHapticFeedback()
-                                        }) {
-                                            Text(lens.displayName)
-                                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                                .foregroundColor(viewModel.selectedLens?.id == lens.id ? Color(hex: "C0392B") : .white)
-                                                .frame(width: 50, height: 36)
-                                        }
-                                        .buttonStyle(TactileButtonStyle(isSelected: viewModel.selectedLens?.id == lens.id))
-                                    }
-                                }
-                            }
-                            
-                            Spacer()
-                            
-                            // Right: Metering Mode Selector (AUTO, CENTER, SPOT)
-                            Button(action: {
-                                triggerCameraHapticFeedback()
-                                switch meteringMode {
-                                case .auto:
-                                    // AUTO -> SPOT
-                                    meteringMode = .spot
-                                    let spotPoint = focusSquarePosition != nil ? viewModel.deviceExposurePoint : CGPoint(x: 0.5, y: 0.5)
-                                    viewModel.updateFocusAndExposure(
-                                        focusPoint: (focusMode == .point) ? viewModel.deviceFocusPoint : nil,
-                                        exposurePoint: spotPoint,
-                                        isFocusPoint: (focusMode == .point),
-                                        isExposurePoint: viewModel.isAutoExposure
-                                    )
-                                case .spot:
-                                    // SPOT -> CENTER
-                                    meteringMode = .center
-                                    viewModel.updateFocusAndExposure(
-                                        focusPoint: (focusMode == .point) ? viewModel.deviceFocusPoint : nil,
-                                        exposurePoint: CGPoint(x: 0.5, y: 0.5),
-                                        isFocusPoint: (focusMode == .point),
-                                        isExposurePoint: true
-                                    )
-                                case .center:
-                                    // CENTER -> AUTO
-                                    meteringMode = .auto
-                                    viewModel.updateFocusAndExposure(
-                                        focusPoint: (focusMode == .point) ? viewModel.deviceFocusPoint : nil,
-                                        exposurePoint: nil,
-                                        isFocusPoint: (focusMode == .point),
-                                        isExposurePoint: false
-                                    )
-                                }
-                            }) {
-                                Text(meteringMode.rawValue)
-                                    .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                    .foregroundColor(meteringMode == .auto ? .white : Color(hex: "C0392B"))
-                                    .frame(width: 48, height: 36)
-                            }
-                            .buttonStyle(TactileButtonStyle(isSelected: meteringMode != .auto))
-                            .padding(.trailing, 16)
+                            .frame(width: 48, height: 36)
                         }
-                        .transition(.opacity)
+                        .buttonStyle(TactileButtonStyle(isSelected: focusMode == .point || viewModel.isFocusLocked))
+                        .padding(.leading, 16)
+                        .simultaneousGesture(
+                            LongPressGesture(minimumDuration: 0.5)
+                                .onEnded { _ in
+                                    viewModel.toggleFocusLock()
+                                    triggerCameraHapticFeedback()
+                                }
+                        )
+                        
+                        Spacer()
+                        
+                        // Center: Lens Switcher (0.5x, 1x, Tele)
+                        if viewModel.cameraPosition == .back && viewModel.availableLenses.count > 1 {
+                            HStack(spacing: 8) {
+                                ForEach(viewModel.availableLenses) { lens in
+                                    Button(action: {
+                                        viewModel.selectedLens = lens
+                                        initializeFocusSquare()
+                                        triggerCameraHapticFeedback()
+                                    }) {
+                                        Text(lens.displayName)
+                                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                            .foregroundColor(viewModel.selectedLens?.id == lens.id ? Color(hex: "C0392B") : .white)
+                                            .frame(width: 50, height: 36)
+                                    }
+                                    .buttonStyle(TactileButtonStyle(isSelected: viewModel.selectedLens?.id == lens.id))
+                                }
+                            }
+                        }
+                        
+                        Spacer()
+                        
+                        // Right: Metering Mode Selector (AUTO, CENTER, SPOT)
+                        Button(action: {
+                            triggerCameraHapticFeedback()
+                            switch meteringMode {
+                            case .auto:
+                                // AUTO -> SPOT
+                                meteringMode = .spot
+                                let spotPoint = focusSquarePosition != nil ? viewModel.deviceExposurePoint : CGPoint(x: 0.5, y: 0.5)
+                                viewModel.updateFocusAndExposure(
+                                    focusPoint: (focusMode == .point) ? viewModel.deviceFocusPoint : nil,
+                                    exposurePoint: spotPoint,
+                                    isFocusPoint: (focusMode == .point),
+                                    isExposurePoint: viewModel.isAutoExposure
+                                )
+                            case .spot:
+                                // SPOT -> CENTER
+                                meteringMode = .center
+                                viewModel.updateFocusAndExposure(
+                                    focusPoint: (focusMode == .point) ? viewModel.deviceFocusPoint : nil,
+                                    exposurePoint: CGPoint(x: 0.5, y: 0.5),
+                                    isFocusPoint: (focusMode == .point),
+                                    isExposurePoint: true
+                                )
+                            case .center:
+                                // CENTER -> AUTO
+                                meteringMode = .auto
+                                viewModel.updateFocusAndExposure(
+                                    focusPoint: (focusMode == .point) ? viewModel.deviceFocusPoint : nil,
+                                    exposurePoint: nil,
+                                    isFocusPoint: (focusMode == .point),
+                                    isExposurePoint: false
+                                )
+                            }
+                        }) {
+                            Text(meteringMode.rawValue)
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .foregroundColor(meteringMode == .auto ? .white : Color(hex: "C0392B"))
+                                .frame(width: 48, height: 36)
+                        }
+                        .buttonStyle(TactileButtonStyle(isSelected: meteringMode != .auto))
+                        .padding(.trailing, 16)
                     }
                     
                     // 2. Exposure settings / Sliders
-                    if isoWheelActive {
-                        let isoValues: [Int] = {
-                            let min = Int(viewModel.minISO)
-                            let max = Int(viewModel.maxISO)
-                            let standardISOs = [25, 32, 40, 50, 64, 80, 100, 125, 160, 200, 250, 320, 400, 500, 640, 800, 1000, 1250, 1600, 2000, 2500, 3200, 4000, 5000, 6400, 8000, 10000, 12800, 25600]
-                            var filtered = standardISOs.filter { $0 >= min && $0 <= max }
-                            if !filtered.contains(min) { filtered.append(min) }
-                            if !filtered.contains(max) { filtered.append(max) }
-                            let current = Int(viewModel.iso)
-                            if !filtered.contains(current) { filtered.append(current) }
-                            return filtered.sorted()
-                        }()
-                        
-                        ExposureSliderView(tickValues: isoValues, viewModel: viewModel, exposureType: .iso)
-                            .padding(.bottom, 10)
-                            .padding(.horizontal, 40)
-                            .onTapGesture {}
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .bottom).combined(with: .opacity),
-                                removal: .move(edge: .bottom).combined(with: .opacity)
-                            ))
-                        
-                    } else if ssWheelActive {
-                        let ssValues: [Int] = {
-                            let min = viewModel.minShutterSpeed
-                            let max = viewModel.maxShutterSpeed
-                            let standardSS = [
-                                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 25, 28, 30, 35, 40, 45, 50, 55, 60, 70, 80, 90, 100,
-                                125, 160, 200, 250, 320, 400, 500, 640, 800, 1000, 1250, 1600, 2000, 2500, 3200, 4000, 5000, 6400, 8000, 10000, 12000
-                            ]
-                            var filtered = standardSS.filter { $0 >= min && $0 <= max }
-                            if !filtered.contains(min) { filtered.append(min) }
-                            if !filtered.contains(max) { filtered.append(max) }
-                            let current = Int(viewModel.shutterSpeed.timescale)
-                            if !filtered.contains(current) { filtered.append(current) }
-                            return filtered.sorted()
-                        }()
-                        
-                        ExposureSliderView(tickValues: ssValues, viewModel: viewModel, exposureType: .shutterSpeed)
-                            .padding(.bottom, 10)
-                            .padding(.horizontal, 40)
-                            .onTapGesture {}
-                            .transition(.asymmetric(
-                                insertion: .move(edge: .bottom).combined(with: .opacity),
-                                removal: .move(edge: .bottom).combined(with: .opacity)
-                            ))
-                        
-                    } else {
-                        // Exposure settings toolbar (excluding Config/Flash)
-                        HStack(alignment: .center, spacing: 20) {
+                    if viewModel.isAutoExposure {
+                        HStack(alignment: .center, spacing: 12) {
                             Button(action: {
-                                viewModel.isAutoExposure.toggle()
+                                withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                                    viewModel.isAutoExposure.toggle()
+                                }
                                 triggerCameraHapticFeedback()
                             }) {
-                                HStack(spacing: 8) {
-                                    ZStack(alignment: viewModel.isAutoExposure ? .trailing : .leading) {
+                                HStack(spacing: 6) {
+                                    ZStack(alignment: viewModel.isAutoExposure ? .top : .bottom) {
                                         RoundedRectangle(cornerRadius: 6)
                                             .fill(Color(hex: "0E0E0E"))
-                                            .frame(width: 32, height: 16)
+                                            .frame(width: 14, height: 26)
                                             .innerShadow(shape: RoundedRectangle(cornerRadius: 6), color: .black, radius: 1, offsetX: 0.5, offsetY: 0.5)
                                         
                                         Circle()
-                                            .fill(viewModel.isAutoExposure ? Color(hex: "C0392B") : Color(hex: "4E4E4E"))
-                                            .frame(width: 12, height: 12)
-                                            .padding(.horizontal, 2)
+                                            .fill(Color(hex: "C0392B"))
+                                            .frame(width: 10, height: 10)
+                                            .padding(.vertical, 2)
                                             .shadow(color: .black.opacity(0.4), radius: 1, x: 0, y: 1)
                                     }
                                     
-                                    Text(viewModel.isAutoExposure ? "AUTO" : "MANUAL")
-                                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                        .foregroundColor(.white)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        HStack(spacing: 2) {
+                                            if viewModel.isExposureLocked {
+                                                Image(systemName: "lock.fill")
+                                                    .font(.system(size: 7))
+                                                    .foregroundColor(Color(hex: "C0392B"))
+                                            }
+                                            Text("AUTO")
+                                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                                .foregroundColor(viewModel.isAutoExposure ? .white : Color(hex: "4E4E4E"))
+                                        }
+                                        
+                                        Text("MANUAL")
+                                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                            .foregroundColor(!viewModel.isAutoExposure ? .white : Color(hex: "4E4E4E"))
+                                    }
                                 }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
+                                .frame(width: 76, height: 32)
+                                .padding(.horizontal, 6)
                                 .background(
                                     RoundedRectangle(cornerRadius: 8)
                                         .fill(Color(hex: "1C1B1B"))
@@ -373,82 +351,168 @@ struct ContentView: View {
                                         )
                                 )
                             }
-                            
-                            Spacer()
-                            
-                            if viewModel.isAutoExposure {
-                                HStack(spacing: 8) {
-                                    Image(systemName: "plusminus.circle")
-                                        .foregroundColor(.white)
-                                        .font(.system(size: 16))
-                                    Slider(value: $viewModel.exposureCompensation, in: -3.0...3.0, step: 0.3)
-                                        .accentColor(Color(hex: "C0392B"))
-                                    Text(String(format: "%+.1f", viewModel.exposureCompensation))
-                                        .font(.system(size: 13, weight: .bold, design: .monospaced))
-                                        .foregroundColor(.white)
-                                        .frame(width: 35, alignment: .trailing)
-                                }
-                                .contentShape(Rectangle())
-                                .onTapGesture(count: 2) {
-                                    viewModel.exposureCompensation = 0.0
-                                    triggerCameraHapticFeedback()
-                                }
-                                .frame(maxWidth: 180)
-                            } else {
-                                Button(action: {
-                                    if !viewModel.isAutoExposure {
-                                        isoWheelActive = true
+                            .simultaneousGesture(
+                                LongPressGesture(minimumDuration: 0.5)
+                                    .onEnded { _ in
+                                        viewModel.toggleExposureLock()
+                                        triggerCameraHapticFeedback()
                                     }
-                                }) {
-                                    HStack(spacing: 6) {
-                                        Text("ISO")
-                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                            .foregroundColor(Color(hex: "C5C7C1"))
-                                        
-                                        Text(String(Int(viewModel.iso)))
-                                            .font(.system(size: 14, weight: .bold, design: .monospaced))
-                                            .foregroundColor(.white)
-                                    }
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 6)
-                                            .fill(Color(hex: "2A2A2A"))
-                                            .innerShadow(shape: RoundedRectangle(cornerRadius: 6), color: .black, radius: 1.5, offsetX: 0.5, offsetY: 0.5)
-                                    )
-                                }
+                            )
+                            
+                            HStack(spacing: 10) {
+                                Image(systemName: "plusminus.circle")
+                                    .foregroundColor(.white)
+                                    .font(.system(size: 15))
                                 
-                                Button(action: {
-                                    if !viewModel.isAutoExposure {
-                                        ssWheelActive = true
-                                    }
-                                }) {
-                                    HStack(spacing: 6) {
-                                        Text("SS")
-                                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                            .foregroundColor(Color(hex: "C5C7C1"))
-                                        
-                                        Text("1/\(Int(viewModel.shutterSpeed.timescale))s")
-                                            .font(.system(size: 14, weight: .bold, design: .monospaced))
-                                            .foregroundColor(.white)
-                                    }
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
-                                    .background(
+                                // Custom recessed slider track matching the toggle style
+                                GeometryReader { geometry in
+                                    let width = geometry.size.width
+                                    let range: ClosedRange<Double> = -3.0...3.0
+                                    let step: Double = 0.3
+                                    let fraction = (viewModel.exposureCompensation - range.lowerBound) / (range.upperBound - range.lowerBound)
+                                    let knobX = fraction * (width - 12)
+                                    
+                                    ZStack(alignment: .leading) {
                                         RoundedRectangle(cornerRadius: 6)
-                                            .fill(Color(hex: "2A2A2A"))
-                                            .innerShadow(shape: RoundedRectangle(cornerRadius: 6), color: .black, radius: 1.5, offsetX: 0.5, offsetY: 0.5)
+                                            .fill(Color(hex: "0E0E0E"))
+                                            .frame(height: 12)
+                                            .innerShadow(shape: RoundedRectangle(cornerRadius: 6), color: .black, radius: 1, offsetX: 0.5, offsetY: 0.5)
+                                        
+                                        Circle()
+                                            .fill(Color(hex: "C0392B"))
+                                            .frame(width: 12, height: 12)
+                                            .shadow(color: .black.opacity(0.4), radius: 1, x: 0, y: 1)
+                                            .offset(x: knobX)
+                                    }
+                                    .contentShape(Rectangle())
+                                    .gesture(
+                                        DragGesture(minimumDistance: 0)
+                                            .onChanged { value in
+                                                let locX = value.location.x
+                                                let percentage = max(0.0, min(1.0, locX / width))
+                                                let rawVal = range.lowerBound + percentage * (range.upperBound - range.lowerBound)
+                                                let snappedVal = round(rawVal / step) * step
+                                                let clampedVal = max(range.lowerBound, min(range.upperBound, snappedVal))
+                                                if viewModel.exposureCompensation != clampedVal {
+                                                    viewModel.exposureCompensation = clampedVal
+                                                    triggerCameraHapticFeedback()
+                                                }
+                                            }
                                     )
                                 }
+                                .frame(height: 12)
+                                
+                                Text(String(format: "%+.1f", viewModel.exposureCompensation))
+                                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                                    .foregroundColor(.white)
+                                    .frame(width: 38, alignment: .trailing)
                             }
+                            .contentShape(Rectangle())
+                            .highPriorityGesture(
+                                TapGesture(count: 2)
+                                    .onEnded {
+                                        viewModel.exposureCompensation = 0.0
+                                        triggerCameraHapticFeedback()
+                                    }
+                            )
                         }
                         .frame(height: 44)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 8)
-                        .transition(.asymmetric(
-                            insertion: .move(edge: .bottom).combined(with: .opacity),
-                            removal: .move(edge: .bottom).combined(with: .opacity)
-                        ))
+                        .transition(.opacity)
+                    } else {
+                        // Manual Mode with 2 side-by-side compact wheel sliders on a single row
+                        HStack(alignment: .center, spacing: 12) {
+                            Button(action: {
+                                withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                                    viewModel.isAutoExposure.toggle()
+                                }
+                                triggerCameraHapticFeedback()
+                            }) {
+                                HStack(spacing: 6) {
+                                    ZStack(alignment: viewModel.isAutoExposure ? .top : .bottom) {
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .fill(Color(hex: "0E0E0E"))
+                                            .frame(width: 14, height: 26)
+                                            .innerShadow(shape: RoundedRectangle(cornerRadius: 6), color: .black, radius: 1, offsetX: 0.5, offsetY: 0.5)
+                                        
+                                        Circle()
+                                            .fill(Color(hex: "C0392B"))
+                                            .frame(width: 10, height: 10)
+                                            .padding(.vertical, 2)
+                                            .shadow(color: .black.opacity(0.4), radius: 1, x: 0, y: 1)
+                                    }
+                                    
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        HStack(spacing: 2) {
+                                            if viewModel.isExposureLocked {
+                                                Image(systemName: "lock.fill")
+                                                    .font(.system(size: 7))
+                                                    .foregroundColor(Color(hex: "C0392B"))
+                                            }
+                                            Text("AUTO")
+                                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                                .foregroundColor(viewModel.isAutoExposure ? .white : Color(hex: "4E4E4E"))
+                                        }
+                                        
+                                        Text("MANUAL")
+                                            .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                            .foregroundColor(!viewModel.isAutoExposure ? .white : Color(hex: "4E4E4E"))
+                                    }
+                                }
+                                .frame(width: 76, height: 32)
+                                .padding(.horizontal, 6)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(Color(hex: "1C1B1B"))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .stroke(Color.white.opacity(0.05), lineWidth: 0.5)
+                                        )
+                                )
+                            }
+                            .simultaneousGesture(
+                                LongPressGesture(minimumDuration: 0.5)
+                                    .onEnded { _ in
+                                        viewModel.toggleExposureLock()
+                                        triggerCameraHapticFeedback()
+                                    }
+                            )
+                            
+                            let isoValues: [Int] = {
+                                let min = Int(viewModel.minISO)
+                                let max = Int(viewModel.maxISO)
+                                let standardISOs = [25, 32, 40, 50, 64, 80, 100, 125, 160, 200, 250, 320, 400, 500, 640, 800, 1000, 1250, 1600, 2000, 2500, 3200, 4000, 5000, 6400, 8000, 10000, 12800, 25600]
+                                var filtered = standardISOs.filter { $0 >= min && $0 <= max }
+                                if !filtered.contains(min) { filtered.append(min) }
+                                if !filtered.contains(max) { filtered.append(max) }
+                                let current = Int(viewModel.iso)
+                                if !filtered.contains(current) { filtered.append(current) }
+                                return filtered.sorted()
+                            }()
+                            
+                            let ssValues: [Int] = {
+                                let min = viewModel.minShutterSpeed
+                                let max = viewModel.maxShutterSpeed
+                                let standardSS = [
+                                    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 25, 28, 30, 35, 40, 45, 50, 55, 60, 70, 80, 90, 100,
+                                    125, 160, 200, 250, 320, 400, 500, 640, 800, 1000, 1250, 1600, 2000, 2500, 3200, 4000, 5000, 6400, 8000, 10000, 12000
+                                ]
+                                var filtered = standardSS.filter { $0 >= min && $0 <= max }
+                                if !filtered.contains(min) { filtered.append(min) }
+                                if !filtered.contains(max) { filtered.append(max) }
+                                let current = Int(viewModel.shutterSpeed.timescale)
+                                if !filtered.contains(current) { filtered.append(current) }
+                                return filtered.sorted()
+                            }()
+                            
+                            ExposureSliderView(tickValues: isoValues, viewModel: viewModel, exposureType: .iso)
+                            ExposureSliderView(tickValues: ssValues, viewModel: viewModel, exposureType: .shutterSpeed)
+                        }
+                        .frame(height: 44)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 8)
+                        .transition(.opacity)
                     }
                     
                     // 3. Shutter and bottom options
@@ -600,8 +664,7 @@ struct ContentView: View {
                     }
                 )
             }
-            .animation(.spring(response: 0.5, dampingFraction: 0.8), value: isoWheelActive)
-            .animation(.spring(response: 0.5, dampingFraction: 0.8), value: ssWheelActive)
+            .animation(.spring(response: 0.4, dampingFraction: 0.8), value: viewModel.isAutoExposure)
         }
         .onAppear {
             viewModel.setupCamera(false, nil) { result in

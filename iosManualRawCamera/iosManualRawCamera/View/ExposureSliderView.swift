@@ -9,205 +9,185 @@ import SwiftUI
 import AVFoundation
 
 struct ExposureSliderView: View {
-    
-    //accepts tick values array, camera view model and epxosure type
     let tickValues: [Int]
     let viewModel: CameraViewModel
     let exposureType: ExposureType
     
-    @State private var currentTickIndex: Int
-    @State private var tickOffset: CGFloat = 0
-    @State private var lastDragTranslation: CGFloat = 0
-    @State private var initialDragIndex: Int = 0
+    // Smooth horizontal 1:1 scrolling state
+    @State private var scrollPosition: Double
+    @State private var isDragging: Bool = false
+    @State private var dragStartPosition: Double = 0
     
-    //fixed tick spacing
-    private let tickSpacing: CGFloat = 15
-    private let phantomTickCount: Int = 10 //un-selectable ticks at edges
+    // Horizontal item spacing
+    private let tickSpacing: CGFloat = 34
     
     init(tickValues: [Int], viewModel: CameraViewModel, exposureType: ExposureType) {
         self.tickValues = tickValues
         self.viewModel = viewModel
         self.exposureType = exposureType
         
-        var initialIndex: Int
+        let initialValue: Int
         if exposureType == .iso {
-            initialIndex = tickValues.firstIndex(of: Int(viewModel.iso))!
+            initialValue = Int(viewModel.iso)
         } else {
-            initialIndex = tickValues.firstIndex(of: Int(viewModel.shutterSpeed.timescale))!
+            initialValue = Int(viewModel.shutterSpeed.timescale)
         }
-        
-        self._currentTickIndex = State(initialValue: initialIndex)
+        let initialIndex = tickValues.firstIndex(of: initialValue) ?? 0
+        self._scrollPosition = State(initialValue: Double(initialIndex))
     }
     
-    // Computed properties
     private var tickCount: Int {
-        return tickValues.count
+        tickValues.count
     }
     
-    private var totalTickCount: Int {
-        return tickCount + (phantomTickCount * 2)
-    }
-    
-    private var currentValue: Int {
-        guard currentTickIndex >= 0 && currentTickIndex < tickValues.count else {
-            return 0
+    private func valueString(for index: Int) -> String {
+        guard index >= 0 && index < tickValues.count else { return "" }
+        let val = tickValues[index]
+        if exposureType == .iso {
+            return "\(val)"
+        } else {
+            return "1/\(val)"
         }
-        return tickValues[currentTickIndex]
-    }
-    
-    // Calculate which ticks are actually visible
-    private func visibleTickRange(for sliderWidth: CGFloat) -> Range<Int> {
-        let ticksPerSide = Int(ceil(sliderWidth / (2 * tickSpacing))) + 2 //buffer
-        let start = currentTickIndex - ticksPerSide - phantomTickCount
-        let end = currentTickIndex + ticksPerSide + phantomTickCount + 1
-        return start..<end
     }
     
     var body: some View {
         GeometryReader { geometry in
             let sliderWidth = geometry.size.width
-            let sliderHeight: CGFloat = 90
+            let sliderHeight = geometry.size.height
             let centerX = sliderWidth / 2
-            let visibleRange = visibleTickRange(for: sliderWidth)
             
             ZStack {
-                // Background container
-                RoundedRectangle(cornerRadius: 100)
-                    .fill(Color.black.opacity(0.5))
-                    .background(
-                        RoundedRectangle(cornerRadius: 100)
-                            .fill(.ultraThinMaterial)
-                    )
-                    .frame(width: sliderWidth, height: sliderHeight)
-                    .shadow(color: .black.opacity(0.3), radius: 3.9, x: 0, y: 9)
+                // Cylindrical Recessed Background
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(LinearGradient(
+                        gradient: Gradient(colors: [Color(hex: "121212"), Color(hex: "080808")]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ))
+                    .innerShadow(shape: RoundedRectangle(cornerRadius: 6), color: .black, radius: 2, offsetX: 1, offsetY: 1)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 100)
-                            .stroke(Color.white.opacity(0.2), lineWidth: 0.5)
+                        RoundedRectangle(cornerRadius: 6)
+                            .stroke(Color.white.opacity(0.06), lineWidth: 0.5)
                     )
                     .gesture(
                         DragGesture()
                             .onChanged { value in
-                                if lastDragTranslation == 0 {
-                                    // Start of drag: record starting index
-                                    initialDragIndex = currentTickIndex
-                                    lastDragTranslation = 1.0 // non-zero sentinel representing active drag
+                                if !isDragging {
+                                    isDragging = true
+                                    dragStartPosition = scrollPosition
                                 }
                                 
-                                // Calculate how many ticks we've moved from the start of the drag
-                                let totalTicksMoved = Int(round(value.translation.width / tickSpacing))
-                                let newTickIndex = initialDragIndex - totalTicksMoved
-                                let clampedIndex = max(0, min(tickCount - 1, newTickIndex))
+                                // Horizontal translation maps to index updates
+                                let deltaTicks = Double(value.translation.width / tickSpacing)
+                                let newPosition = dragStartPosition - deltaTicks
+                                let clampedPosition = max(0.0, min(Double(tickCount - 1), newPosition))
                                 
-                                if clampedIndex != currentTickIndex {
-                                    currentTickIndex = clampedIndex
-                                    
-                                    // Apply camera updates in real-time while dragging
-                                    if exposureType == .iso {
-                                        viewModel.iso = Double(tickValues[clampedIndex])
-                                    } else {
-                                        viewModel.shutterSpeed = CMTime(value: 1, timescale: Int32(tickValues[clampedIndex]))
+                                scrollPosition = clampedPosition
+                                
+                                // Update ViewModel on integer step changes
+                                let index = Int(round(clampedPosition))
+                                if exposureType == .iso {
+                                    let targetIso = Double(tickValues[index])
+                                    if viewModel.iso != targetIso {
+                                        viewModel.iso = targetIso
+                                        triggerHaptic()
                                     }
-                                    
-                                    #if !targetEnvironment(simulator)
-                                    // Haptic feedback
-                                    let impactFeedback = UIImpactFeedbackGenerator(style: .light)
-                                    impactFeedback.impactOccurred()
-                                    #endif
+                                } else {
+                                    let targetSS = Int32(tickValues[index])
+                                    if viewModel.shutterSpeed.timescale != targetSS {
+                                        viewModel.shutterSpeed = CMTime(value: 1, timescale: targetSS)
+                                        triggerHaptic()
+                                    }
                                 }
                             }
                             .onEnded { _ in
-                                lastDragTranslation = 0
+                                isDragging = false
+                                let snappedIndex = Int(round(scrollPosition))
+                                withAnimation(.spring(response: 0.25, dampingFraction: 0.75)) {
+                                    scrollPosition = Double(snappedIndex)
+                                }
                             }
                     )
                 
-                
-                VStack(spacing: 4) {
-                    
-                    // Fixed center indicator
-                    Text(exposureType == .iso ? "\(currentValue)" : "1/\(currentValue)")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
-                    
-                    Triangle()
-                        .fill(Color(red: 0.49, green: 0.53, blue: 1))
-                        .frame(width: 8, height: 6)
-                        .offset(y: -2)
-                        .padding(.bottom, 4)
-                    
-                    // Moving tick marks container - only render visible ticks
-                    ZStack(alignment: .bottom) {
-                        // Only generate visible ticks
-                        ForEach(max(visibleRange.lowerBound, -phantomTickCount)..<min(visibleRange.upperBound, tickCount + phantomTickCount), id: \.self) { index in
-                            let adjustedIndex = index + phantomTickCount // Offset for phantom calculation
-                            let tickX = CGFloat(index - currentTickIndex) * tickSpacing + centerX
-                            
-                            TickMark(
-                                index: adjustedIndex,
-                                tickX: tickX,
-                                centerX: centerX,
-                                sliderWidth: sliderWidth,
-                                isPhantom: index < 0 || index >= tickCount
-                            )
-                            .offset(x: tickX - centerX, y: 0)
-                        }
-                    }
-                    .frame(width: sliderWidth, height: 30)
-                    .padding(.bottom, 10)
-                    .clipShape(RoundedRectangle(cornerRadius: 100))
+                // Vertical Selection Frame Highlights (Clock app style slot, but vertical)
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.white.opacity(0.04))
+                    .frame(width: 44, height: 26)
                     .allowsHitTesting(false)
-                    .animation(.easeOut(duration: 0.2), value: currentTickIndex)
+                
+                // Horizontal Scrolling Cylindrical 3D Picker Elements
+                ZStack {
+                    let visibleBuffer = Int(ceil(sliderWidth / (2 * tickSpacing))) + 1
+                    let centerInt = Int(round(scrollPosition))
+                    let rangeStart = max(0, centerInt - visibleBuffer)
+                    let rangeEnd = min(tickCount - 1, centerInt + visibleBuffer)
+                    
+                    ForEach(rangeStart...rangeEnd, id: \.self) { index in
+                        let tickX = CGFloat(Double(index) - scrollPosition) * tickSpacing + centerX
+                        let distanceFromCenter = tickX - centerX
+                        let maxDistance = sliderWidth / 2
+                        let ratio = distanceFromCenter / maxDistance
+                        let clampedRatio = max(-1.0, min(1.0, Double(ratio)))
+                        
+                        // 3D Perspective Rotation around vertical Y-axis
+                        let angle = Angle(degrees: clampedRatio * 60)
+                        let scale = 1.0 - abs(clampedRatio) * 0.15
+                        let opacity = index == Int(round(scrollPosition)) ? 1.0 : (1.0 - abs(clampedRatio) * 0.7)
+                        
+                        Text(valueString(for: index))
+                            .font(.system(size: index == Int(round(scrollPosition)) ? 13 : 11, weight: .bold, design: .monospaced))
+                            .foregroundColor(index == Int(round(scrollPosition)) ? Color(hex: "C0392B") : .white)
+                            .opacity(opacity)
+                            .scaleEffect(scale)
+                            .rotation3DEffect(angle, axis: (x: 0.0, y: 1.0, z: 0.0), anchor: .center, perspective: 0.5)
+                            .offset(x: tickX - centerX, y: 3)
+                    }
+                }
+                .frame(width: sliderWidth)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .allowsHitTesting(false)
+                
+                // Tiny Corner Label Indicator
+                VStack {
+                    HStack {
+                        Text(exposureType == .iso ? "ISO" : "SHUTTER")
+                            .font(.system(size: 7, weight: .bold, design: .monospaced))
+                            .foregroundColor(Color(hex: "C5C7C1"))
+                            .padding(.leading, 6)
+                            .padding(.top, 4)
+                        Spacer()
+                    }
+                    Spacer()
                 }
                 .allowsHitTesting(false)
             }
         }
-        .frame(height: 100)
-    }
-}
-
-struct TickMark: View {
-    let index: Int
-    let tickX: CGFloat
-    let centerX: CGFloat
-    let sliderWidth: CGFloat
-    let isPhantom: Bool
-    
-    private var tickOpacity: Double {
-        // Calculate opacity based on distance from center of the view
-        let distanceFromCenter = abs(tickX - centerX)
-        let maxDistance = sliderWidth / 2
-        let normalizedDistance = min(distanceFromCenter / maxDistance, 1.0)
-        
-        //base opacity calculation
-        let baseOpacity = pow(0.005, pow(normalizedDistance, 5))
-        
-        //phantom ticks greyed out
-        return isPhantom ? baseOpacity * 0.05 : baseOpacity
-    }
-    
-    private var tickHeight: CGFloat {
-        if index % 5 == 0 {
-            return 30 // tall tick
-        } else {
-            return 20 // short tick
+        .frame(height: 44)
+        .onChange(of: viewModel.iso) { newIso in
+            if !isDragging && exposureType == .iso {
+                if let idx = tickValues.firstIndex(of: Int(newIso)) {
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        scrollPosition = Double(idx)
+                    }
+                }
+            }
+        }
+        .onChange(of: viewModel.shutterSpeed) { newSS in
+            if !isDragging && exposureType == .shutterSpeed {
+                if let idx = tickValues.firstIndex(of: Int(newSS.timescale)) {
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        scrollPosition = Double(idx)
+                    }
+                }
+            }
         }
     }
     
-    var body: some View {
-        Rectangle()
-            .fill(Color.white.opacity(tickOpacity))
-            .frame(width: 2, height: tickHeight)
-            .animation(.easeInOut(duration: 0.2), value: tickOpacity)
-    }
-}
-
-struct Triangle: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.midX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
-        path.closeSubpath()
-        return path
+    private func triggerHaptic() {
+        #if !targetEnvironment(simulator)
+        let generator = UIImpactFeedbackGenerator(style: .light)
+        generator.impactOccurred()
+        #endif
     }
 }
 

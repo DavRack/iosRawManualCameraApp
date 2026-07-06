@@ -82,6 +82,8 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
     }
     
     @Published var isCapturing = false
+    @Published var isExposureLocked: Bool = false
+    @Published var isFocusLocked: Bool = false
     @Published var lastCapturedAssetLocalIdentifier: String?
     @Published var exposureCompensation: Double = 0.0 {
         didSet {
@@ -358,6 +360,70 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
         }
     }
     
+    func toggleExposureLock() {
+        guard let device = self.device else { return }
+        sessionQueue.async {
+            do {
+                try device.lockForConfiguration()
+                if self.isExposureLocked {
+                    // Unlock
+                    if self.isAutoExposure {
+                        if device.isExposureModeSupported(.continuousAutoExposure) {
+                            device.exposureMode = .continuousAutoExposure
+                        }
+                    } else {
+                        if device.isExposureModeSupported(.custom) {
+                            device.exposureMode = .custom
+                        }
+                    }
+                    DispatchQueue.main.async {
+                        self.isExposureLocked = false
+                    }
+                } else {
+                    // Lock
+                    if device.isExposureModeSupported(.locked) {
+                        device.exposureMode = .locked
+                    }
+                    DispatchQueue.main.async {
+                        self.isExposureLocked = true
+                    }
+                }
+                device.unlockForConfiguration()
+            } catch {
+                print("Error locking exposure configuration: \(error)")
+            }
+        }
+    }
+    
+    func toggleFocusLock() {
+        guard let device = self.device else { return }
+        sessionQueue.async {
+            do {
+                try device.lockForConfiguration()
+                if self.isFocusLocked {
+                    // Unlock
+                    if device.isFocusModeSupported(.continuousAutoFocus) {
+                        device.focusMode = .continuousAutoFocus
+                    }
+                    DispatchQueue.main.async {
+                        self.isFocusLocked = false
+                    }
+                } else {
+                    // Lock
+                    if device.isFocusModeSupported(.locked) {
+                        device.focusMode = .locked
+                    }
+                    DispatchQueue.main.async {
+                        self.isFocusLocked = true
+                    }
+                }
+                device.unlockForConfiguration()
+            } catch {
+                print("Error locking focus configuration: \(error)")
+            }
+        }
+    }
+
     func updateFocusAndExposure(focusPoint: CGPoint?, exposurePoint: CGPoint?, isFocusPoint: Bool, isExposurePoint: Bool) {
         guard let device = self.device else {
             print("No camera device available to update focus/exposure")
@@ -369,7 +435,9 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
                 try device.lockForConfiguration()
                 
                 // Handle Focus Point
-                if isFocusPoint, let fPoint = focusPoint, device.isFocusPointOfInterestSupported {
+                if self.isFocusLocked {
+                    // Skip updating focus mode if focus is locked
+                } else if isFocusPoint, let fPoint = focusPoint, device.isFocusPointOfInterestSupported {
                     device.focusPointOfInterest = fPoint
                     device.focusMode = .autoFocus
                 } else if !isFocusPoint {
@@ -382,7 +450,9 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
                 }
                 
                 // Handle Exposure Point (Spot Metering)
-                if isExposurePoint, let ePoint = exposurePoint, device.isExposurePointOfInterestSupported {
+                if self.isExposureLocked {
+                    // Skip updating exposure mode if exposure is locked
+                } else if isExposurePoint, let ePoint = exposurePoint, device.isExposurePointOfInterestSupported {
                     device.exposurePointOfInterest = ePoint
                     device.exposureMode = self.isAutoExposure ? .continuousAutoExposure : .custom
                 } else if !isExposurePoint {
