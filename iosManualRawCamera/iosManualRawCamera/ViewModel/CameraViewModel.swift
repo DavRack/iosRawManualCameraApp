@@ -43,6 +43,9 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
     private let sessionQueue = DispatchQueue(label: "session queue")
     private var device: AVCaptureDevice?
     
+    var deviceFocusPoint: CGPoint = CGPoint(x: 0.5, y: 0.5)
+    var deviceExposurePoint: CGPoint = CGPoint(x: 0.5, y: 0.5)
+    
     @Published var availableLenses: [CameraLens] = []
     @Published var selectedLens: CameraLens? {
         didSet {
@@ -65,6 +68,11 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
     @Published var exportFormat: ExportFormat {
         didSet {
             UserDefaults.standard.set(exportFormat.rawValue, forKey: "exportFormat")
+        }
+    }
+    @Published var mirrorSelfieOutput: Bool {
+        didSet {
+            UserDefaults.standard.set(mirrorSelfieOutput, forKey: "mirrorSelfieOutput")
         }
     }
     @Published var pipelineConfigToml: String {
@@ -129,13 +137,18 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
         } else {
             self.exposureCompensation = 0.0
         }
-       
-       if let storedFormatRaw = UserDefaults.standard.string(forKey: "exportFormat"),
-          let storedFormat = ExportFormat(rawValue: storedFormatRaw) {
-           self.exportFormat = storedFormat
-       } else {
-           self.exportFormat = .rawAndJpeg
-       }
+              if let storedFormatRaw = UserDefaults.standard.string(forKey: "exportFormat"),
+           let storedFormat = ExportFormat(rawValue: storedFormatRaw) {
+            self.exportFormat = storedFormat
+        } else {
+            self.exportFormat = .rawAndJpeg
+        }
+        
+        if let storedMirrorSelfie = UserDefaults.standard.object(forKey: "mirrorSelfieOutput") as? Bool {
+            self.mirrorSelfieOutput = storedMirrorSelfie
+        } else {
+            self.mirrorSelfieOutput = true
+        }
        
        let defaultToml = """
        #### Pixel Pipeline ####
@@ -345,9 +358,9 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
         }
     }
     
-    func focus(at point: CGPoint) {
+    func updateFocusAndExposure(focusPoint: CGPoint?, exposurePoint: CGPoint?, isFocusPoint: Bool, isExposurePoint: Bool) {
         guard let device = self.device else {
-            print("No camera device available for focus")
+            print("No camera device available to update focus/exposure")
             return
         }
         
@@ -355,56 +368,37 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
             do {
                 try device.lockForConfiguration()
                 
-                if device.isFocusPointOfInterestSupported {
-                    device.focusPointOfInterest = point
+                // Handle Focus Point
+                if isFocusPoint, let fPoint = focusPoint, device.isFocusPointOfInterestSupported {
+                    device.focusPointOfInterest = fPoint
                     device.focusMode = .autoFocus
+                } else if !isFocusPoint {
+                    if device.isFocusPointOfInterestSupported {
+                        device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                    }
+                    if device.isFocusModeSupported(.continuousAutoFocus) {
+                        device.focusMode = .continuousAutoFocus
+                    }
                 }
                 
-                if device.isExposurePointOfInterestSupported {
-                    device.exposurePointOfInterest = point
+                // Handle Exposure Point (Spot Metering)
+                if isExposurePoint, let ePoint = exposurePoint, device.isExposurePointOfInterestSupported {
+                    device.exposurePointOfInterest = ePoint
                     device.exposureMode = self.isAutoExposure ? .continuousAutoExposure : .custom
+                } else if !isExposurePoint {
+                    if device.isExposurePointOfInterestSupported {
+                        device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                    }
+                    if device.isExposureModeSupported(.continuousAutoExposure) && self.isAutoExposure {
+                        device.exposureMode = .continuousAutoExposure
+                    }
                 }
                 
-                device.isSubjectAreaChangeMonitoringEnabled = true
+                device.isSubjectAreaChangeMonitoringEnabled = (isFocusPoint || isExposurePoint)
                 device.unlockForConfiguration()
-                print("Camera focused at device point: \(point)")
+                print("Updated focus/exposure. FocusPoint: \(String(describing: focusPoint)), ExposurePoint: \(String(describing: exposurePoint))")
             } catch {
-                print("Error setting focus point: \(error)")
-            }
-        }
-    }
-    
-    func resetToContinuousAutofocus() {
-        guard let device = self.device else {
-            print("No camera device available to reset focus")
-            return
-        }
-        
-        sessionQueue.async {
-            do {
-                try device.lockForConfiguration()
-                
-                // Reset points of interest to center to force active re-focus sweep
-                if device.isFocusPointOfInterestSupported {
-                    device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)
-                }
-                if device.isExposurePointOfInterestSupported {
-                    device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
-                }
-                
-                if device.isFocusModeSupported(.continuousAutoFocus) {
-                    device.focusMode = .continuousAutoFocus
-                }
-                
-                if device.isExposureModeSupported(.continuousAutoExposure) && self.isAutoExposure {
-                    device.exposureMode = .continuousAutoExposure
-                }
-                
-                device.isSubjectAreaChangeMonitoringEnabled = false
-                device.unlockForConfiguration()
-                print("Reverted camera to continuous autofocus at center")
-            } catch {
-                print("Error resetting focus mode: \(error)")
+                print("Error updating focus/exposure: \(error)")
             }
         }
     }
@@ -830,7 +824,10 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
                     
                     // 5. Convert to UIImage with correct EXIF orientation
                     let exifOrientationVal = (metadata[kCGImagePropertyOrientation as String] as? NSNumber)?.int32Value ?? 1
-                    let imageOrientation = self.uiImageOrientation(from: exifOrientationVal)
+                    var imageOrientation = self.uiImageOrientation(from: exifOrientationVal)
+                    if self.cameraPosition == .front && self.mirrorSelfieOutput {
+                        imageOrientation = self.adjustOrientationForSelfie(imageOrientation)
+                    }
                     print("EXIF orientation: \(exifOrientationVal), mapped to Swift orientation: \(imageOrientation)")
                     
                     if let uiImage = uiImageFromRGBBytes(bytes: rgbPtr, width: outWidth, height: outHeight, orientation: imageOrientation) {
@@ -973,6 +970,20 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
         }
     }
     
+    private func adjustOrientationForSelfie(_ orientation: UIImage.Orientation) -> UIImage.Orientation {
+        switch orientation {
+        case .up: return .upMirrored
+        case .upMirrored: return .up
+        case .down: return .downMirrored
+        case .downMirrored: return .down
+        case .left: return .leftMirrored
+        case .leftMirrored: return .left
+        case .right: return .rightMirrored
+        case .rightMirrored: return .right
+        @unknown default: return orientation
+        }
+    }
+    
     
     
     private func generateThumbnail(from rawData: Data) {
@@ -984,7 +995,8 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
             }
             
             // Create UIImage and resize for thumbnail
-            let fullImage = UIImage(cgImage: cgImage, scale: 1.0, orientation: .right)
+            let orientation: UIImage.Orientation = (self.cameraPosition == .front && self.mirrorSelfieOutput) ? .rightMirrored : .right
+            let fullImage = UIImage(cgImage: cgImage, scale: 1.0, orientation: orientation)
             let thumbnailSize = CGSize(width: 150, height: 150)
             let thumbnail = fullImage.preparingThumbnail(of: thumbnailSize)
             

@@ -25,27 +25,24 @@ struct ContentView: View {
         case point = "AF-S"
     }
     
+    enum MeteringMode: String {
+        case auto = "AUTO"
+        case center = "CENTER"
+        case spot = "SPOT"
+    }
+    
     @State private var isConfigModalPresented = false
     @State private var showGrid = UserDefaults.standard.bool(forKey: "showGrid")
     @State private var focusSquarePosition: CGPoint? = nil
     @State private var focusMode: FocusModeState = .auto
+    @State private var meteringMode: MeteringMode = .auto
     
     
     var body: some View {
         ZStack(alignment: .top) {
             Color.black.ignoresSafeArea() // Solid black background behind bars
             
-            // Camera preview with 3:4 sensor display aspect ratio
-            CameraPreviewView(session: cameraFeedRunning ? viewModel.captureSession : nil) { layerPoint, devicePoint in
-                self.focusSquarePosition = layerPoint
-                viewModel.focus(at: devicePoint)
-                self.focusMode = .point
-            }
-            .ignoresSafeArea()
-            .onAppear {
-                viewModel.getDeviceSpecs()
-                initializeFocusSquare()
-            }
+
             
             // Full screen tap-to-dismiss overlay
             if isoWheelActive || ssWheelActive {
@@ -79,25 +76,6 @@ struct ContentView: View {
                             .foregroundColor(showGrid ? .yellow : .white)
                     }
                     
-                    Button(action: {
-                        if focusMode == .point {
-                            focusMode = .auto
-                            viewModel.resetToContinuousAutofocus()
-                            initializeFocusSquare()
-                            triggerCameraHapticFeedback()
-                        }
-                    }) {
-                        Text(focusMode.rawValue)
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundColor(focusMode == .auto ? .white : .yellow)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 4)
-                                    .stroke(focusMode == .auto ? Color.white.opacity(0.3) : Color.yellow, lineWidth: 1.0)
-                            )
-                    }
-                    
                     Spacer()
                     
                     Button(action: {
@@ -114,43 +92,191 @@ struct ContentView: View {
                 .background(Color.black)
                 
                 ZStack {
-                    Spacer()
-                        .frame(height: UIScreen.main.bounds.width * 4 / 3)
+                    // Camera preview placed directly in layout hierarchy, preventing touch interception
+                    CameraPreviewView(session: cameraFeedRunning ? viewModel.captureSession : nil) { layerPoint, devicePoint in
+                        self.focusSquarePosition = layerPoint
+                        
+                        // Save points in viewModel for dynamic mode toggling
+                        viewModel.deviceFocusPoint = devicePoint
+                        viewModel.deviceExposurePoint = devicePoint
+                        
+                        let wasAuto = (focusMode == .auto)
+                        let isSpot = (meteringMode == .spot)
+                        let isExposureMetered = viewModel.isAutoExposure
+                        
+                        if wasAuto && !isSpot {
+                            // Tapping in AF-A when spot is not active shifts focus selector to AF-S
+                            self.focusMode = .point
+                        }
+                        
+                        let isFocusPoint = (focusMode == .point || (wasAuto && !isSpot))
+                        let isExposurePoint = (isSpot && isExposureMetered)
+                        
+                        viewModel.updateFocusAndExposure(
+                            focusPoint: isFocusPoint ? devicePoint : nil,
+                            exposurePoint: isExposurePoint ? devicePoint : nil,
+                            isFocusPoint: isFocusPoint,
+                            isExposurePoint: isExposurePoint
+                        )
+                    }
+                    .allowsHitTesting(!(isoWheelActive || ssWheelActive))
                     
                     if showGrid {
                         GridView()
+                            .allowsHitTesting(false)
                     }
                     
-                    // Visual Focus Square Overlay (aligned inside 3:4 preview bounds)
-                    if let focusPosition = focusSquarePosition, focusMode == .point {
-                        FocusSquareView()
-                            .position(focusPosition)
-                            .id("\(focusPosition.x)-\(focusPosition.y)")
+                    // Translucent Center Weight Circle (same color/opacity as thirds grid)
+                    if meteringMode == .center {
+                        Circle()
+                            .stroke(Color.white.opacity(0.4), lineWidth: 1.5)
+                            .frame(width: 90, height: 90)
+                    }
+                    
+                    // Visual Focus/Exposure Indicator (aligned inside 3:4 preview bounds)
+                    if let focusPosition = focusSquarePosition {
+                        let isFocusActive = (focusMode == .point)
+                        let isSpotActive = (meteringMode == .spot && viewModel.isAutoExposure)
+                        let showIndicator = isFocusActive || isSpotActive
+                        
+                        let style: FocusIndicatorView.IndicatorStyle = {
+                            if isFocusActive && isSpotActive {
+                                return .squircle
+                            } else if isSpotActive {
+                                return .circle
+                            } else {
+                                return .square
+                            }
+                        }()
+                        
+                        if showIndicator {
+                            FocusIndicatorView(style: style)
+                                .position(focusPosition)
+                                .id("\(focusPosition.x)-\(focusPosition.y)-\(style)")
+                        }
                     }
                 }
                 .frame(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.width * 4 / 3)
                 
                 // Bottom Space - Lens switcher, exposure settings, and controls
                 VStack(spacing: 16) {
-                    // 1. Lens Switcher (0.5x, 1x, Tele)
-                    if !isoWheelActive && !ssWheelActive && viewModel.cameraPosition == .back && viewModel.availableLenses.count > 1 {
-                        HStack(spacing: 16) {
-                            ForEach(viewModel.availableLenses) { lens in
-                                Button(action: {
-                                    viewModel.selectedLens = lens
+                    // 1. Bottom Control Row (Focus selector, Lenses, and future placeholder)
+                    if !isoWheelActive && !ssWheelActive {
+                        HStack {
+                            // Left: Focus Mode Selector
+                            Button(action: {
+                                triggerCameraHapticFeedback()
+                                if focusMode == .point {
+                                    focusMode = .auto
+                                    // Reset both focus and exposure back to center/defaults
+                                    viewModel.updateFocusAndExposure(
+                                        focusPoint: nil,
+                                        exposurePoint: (meteringMode == .spot) ? CGPoint(x: 0.5, y: 0.5) : nil,
+                                        isFocusPoint: false,
+                                        isExposurePoint: (meteringMode == .spot && viewModel.isAutoExposure)
+                                    )
                                     initializeFocusSquare()
-                                    triggerCameraHapticFeedback()
-                                }) {
-                                    Text(lens.displayName)
-                                        .font(.system(size: 12, weight: .bold))
-                                        .foregroundColor(viewModel.selectedLens?.id == lens.id ? .black : .white)
-                                        .frame(width: 50, height: 36)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 6)
-                                                .fill(viewModel.selectedLens?.id == lens.id ? Color.yellow : Color.white.opacity(0.15))
-                                        )
+                                } else {
+                                    focusMode = .point
+                                    // Center point coordinates in screen and device space
+                                    let screenWidth = UIScreen.main.bounds.width
+                                    focusSquarePosition = CGPoint(x: screenWidth / 2.0, y: (screenWidth * 4.0 / 3.0) / 2.0)
+                                    
+                                    let devicePoint = CGPoint(x: 0.5, y: 0.5)
+                                    viewModel.deviceFocusPoint = devicePoint
+                                    if meteringMode == .spot {
+                                        viewModel.deviceExposurePoint = devicePoint
+                                    }
+                                    
+                                    viewModel.updateFocusAndExposure(
+                                        focusPoint: devicePoint,
+                                        exposurePoint: (meteringMode == .spot && viewModel.isAutoExposure) ? devicePoint : nil,
+                                        isFocusPoint: true,
+                                        isExposurePoint: (meteringMode == .spot && viewModel.isAutoExposure)
+                                    )
+                                }
+                            }) {
+                                Text(focusMode.rawValue)
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(focusMode == .auto ? .white : .yellow)
+                                    .frame(width: 48, height: 36)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .stroke(focusMode == .auto ? Color.white.opacity(0.3) : Color.yellow, lineWidth: 1.0)
+                                    )
+                            }
+                            .padding(.leading, 16)
+                            
+                            Spacer()
+                            
+                            // Center: Lens Switcher (0.5x, 1x, Tele)
+                            if viewModel.cameraPosition == .back && viewModel.availableLenses.count > 1 {
+                                HStack(spacing: 12) {
+                                    ForEach(viewModel.availableLenses) { lens in
+                                        Button(action: {
+                                            viewModel.selectedLens = lens
+                                            initializeFocusSquare()
+                                            triggerCameraHapticFeedback()
+                                        }) {
+                                            Text(lens.displayName)
+                                                .font(.system(size: 12, weight: .bold))
+                                                .foregroundColor(viewModel.selectedLens?.id == lens.id ? .black : .white)
+                                                .frame(width: 50, height: 36)
+                                                .background(
+                                                    RoundedRectangle(cornerRadius: 6)
+                                                        .fill(viewModel.selectedLens?.id == lens.id ? Color.yellow : Color.white.opacity(0.15))
+                                                )
+                                        }
+                                    }
                                 }
                             }
+                            
+                            Spacer()
+                            
+                            // Right: Metering Mode Selector (AUTO, CENTER, SPOT)
+                            Button(action: {
+                                triggerCameraHapticFeedback()
+                                switch meteringMode {
+                                case .auto:
+                                    // AUTO -> SPOT
+                                    meteringMode = .spot
+                                    let spotPoint = focusSquarePosition != nil ? viewModel.deviceExposurePoint : CGPoint(x: 0.5, y: 0.5)
+                                    viewModel.updateFocusAndExposure(
+                                        focusPoint: (focusMode == .point) ? viewModel.deviceFocusPoint : nil,
+                                        exposurePoint: spotPoint,
+                                        isFocusPoint: (focusMode == .point),
+                                        isExposurePoint: viewModel.isAutoExposure
+                                    )
+                                case .spot:
+                                    // SPOT -> CENTER
+                                    meteringMode = .center
+                                    viewModel.updateFocusAndExposure(
+                                        focusPoint: (focusMode == .point) ? viewModel.deviceFocusPoint : nil,
+                                        exposurePoint: CGPoint(x: 0.5, y: 0.5),
+                                        isFocusPoint: (focusMode == .point),
+                                        isExposurePoint: true
+                                    )
+                                case .center:
+                                    // CENTER -> AUTO
+                                    meteringMode = .auto
+                                    viewModel.updateFocusAndExposure(
+                                        focusPoint: (focusMode == .point) ? viewModel.deviceFocusPoint : nil,
+                                        exposurePoint: nil,
+                                        isFocusPoint: (focusMode == .point),
+                                        isExposurePoint: false
+                                    )
+                                }
+                            }) {
+                                Text(meteringMode.rawValue)
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundColor(meteringMode == .auto ? .white : .yellow)
+                                    .frame(width: 48, height: 36)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 6)
+                                            .stroke(meteringMode == .auto ? Color.white.opacity(0.3) : Color.yellow, lineWidth: 1.0)
+                                    )
+                            }
+                            .padding(.trailing, 16)
                         }
                         .transition(.opacity)
                     }
@@ -398,6 +524,8 @@ struct ContentView: View {
                     print("Error with camera setup")
                 }
             }
+            viewModel.getDeviceSpecs()
+            initializeFocusSquare()
         }
         .sheet(isPresented: $isConfigModalPresented) {
             ConfigView(viewModel: viewModel)
@@ -425,6 +553,7 @@ struct ContentView: View {
         let screenWidth = UIScreen.main.bounds.width
         focusSquarePosition = CGPoint(x: screenWidth / 2.0, y: (screenWidth * 4.0 / 3.0) / 2.0)
         focusMode = .auto
+        meteringMode = .auto
     }
 }
 
@@ -457,25 +586,16 @@ class UICameraPreviewView: UIView {
     }
     
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
-        let screenPoint = gesture.location(in: self)
-        let screenWidth = bounds.width
-        let safeAreaTop = self.safeAreaInsets.top
-        let topBarHeight = safeAreaTop + 44
-        let previewFrame = CGRect(x: 0, y: topBarHeight, width: screenWidth, height: screenWidth * 4.0 / 3.0)
-        
-        if previewFrame.contains(screenPoint) {
-            let layerPoint = previewLayer.convert(screenPoint, from: self.layer)
-            let devicePoint = previewLayer.captureDevicePointConverted(fromLayerPoint: layerPoint)
-            onTap?(layerPoint, devicePoint)
+        let pointInLayer = gesture.location(in: self)
+        if bounds.contains(pointInLayer) {
+            let devicePoint = previewLayer.captureDevicePointConverted(fromLayerPoint: pointInLayer)
+            onTap?(pointInLayer, devicePoint)
         }
     }
     
     override func layoutSubviews() {
         super.layoutSubviews()
-        let screenWidth = bounds.width
-        let safeAreaTop = self.safeAreaInsets.top
-        let topBarHeight = safeAreaTop + 44
-        previewLayer.frame = CGRect(x: 0, y: topBarHeight, width: screenWidth, height: screenWidth * 4.0 / 3.0)
+        previewLayer.frame = bounds
     }
 }
 
@@ -502,22 +622,40 @@ struct CameraPreviewView: UIViewRepresentable {
     }
 }
 
-struct FocusSquareView: View {
+struct FocusIndicatorView: View {
+    enum IndicatorStyle {
+        case square
+        case circle
+        case squircle
+    }
+    
+    let style: IndicatorStyle
     @State private var scale: CGFloat = 1.4
     @State private var opacity: Double = 0.0
     
     var body: some View {
-        Rectangle()
-            .stroke(Color.yellow, lineWidth: 1.5)
-            .frame(width: 70, height: 70)
-            .scaleEffect(scale)
-            .opacity(opacity)
-            .onAppear {
-                withAnimation(.easeOut(duration: 0.2)) {
-                    scale = 1.0
-                    opacity = 1.0
-                }
+        Group {
+            switch style {
+            case .circle:
+                Circle()
+                    .stroke(Color.yellow, lineWidth: 1.5)
+            case .square:
+                Rectangle()
+                    .stroke(Color.yellow, lineWidth: 1.5)
+            case .squircle:
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.yellow, lineWidth: 1.5)
             }
+        }
+        .frame(width: 70, height: 70)
+        .scaleEffect(scale)
+        .opacity(opacity)
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.2)) {
+                scale = 1.0
+                opacity = 1.0
+            }
+        }
     }
 }
 
@@ -536,6 +674,10 @@ struct ConfigView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                }
+                
+                Section(header: Text("Selfie Camera")) {
+                    Toggle("Mirror Selfie Output", isOn: $viewModel.mirrorSelfieOutput)
                 }
                 
                 Section {
