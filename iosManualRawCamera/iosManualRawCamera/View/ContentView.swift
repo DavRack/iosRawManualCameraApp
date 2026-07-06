@@ -400,6 +400,7 @@ struct ContentView: View {
                                 }
                             }
                         }
+                        .frame(height: 44)
                         .padding(.horizontal, 20)
                         .padding(.vertical, 8)
                         .transition(.asymmetric(
