@@ -20,8 +20,15 @@ struct ContentView: View {
     @State private var flashOn = false
     @State private var isoWheelActive = false
     @State private var ssWheelActive = false
+    enum FocusModeState: String {
+        case auto = "AUTO"
+        case point = "POINT"
+    }
+    
     @State private var isConfigModalPresented = false
     @State private var showGrid = UserDefaults.standard.bool(forKey: "showGrid")
+    @State private var focusSquarePosition: CGPoint? = nil
+    @State private var focusMode: FocusModeState = .auto
     
     
     var body: some View {
@@ -29,11 +36,16 @@ struct ContentView: View {
             Color.black.ignoresSafeArea() // Solid black background behind bars
             
             // Camera preview with 3:4 sensor display aspect ratio
-            CameraPreviewView(session: cameraFeedRunning ? viewModel.captureSession : nil)
-                .ignoresSafeArea()
-                .onAppear {
-                    viewModel.getDeviceSpecs()
-                }
+            CameraPreviewView(session: cameraFeedRunning ? viewModel.captureSession : nil) { layerPoint, devicePoint in
+                self.focusSquarePosition = layerPoint
+                viewModel.focus(at: devicePoint)
+                self.focusMode = .point
+            }
+            .ignoresSafeArea()
+            .onAppear {
+                viewModel.getDeviceSpecs()
+                initializeFocusSquare()
+            }
             
             // Full screen tap-to-dismiss overlay
             if isoWheelActive || ssWheelActive {
@@ -67,6 +79,25 @@ struct ContentView: View {
                             .foregroundColor(showGrid ? .yellow : .white)
                     }
                     
+                    Button(action: {
+                        if focusMode == .point {
+                            focusMode = .auto
+                            viewModel.resetToContinuousAutofocus()
+                            initializeFocusSquare()
+                            triggerCameraHapticFeedback()
+                        }
+                    }) {
+                        Text(focusMode.rawValue)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(focusMode == .auto ? .white : .yellow)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .stroke(focusMode == .auto ? Color.white.opacity(0.3) : Color.yellow, lineWidth: 1.0)
+                            )
+                    }
+                    
                     Spacer()
                     
                     Button(action: {
@@ -89,6 +120,13 @@ struct ContentView: View {
                     if showGrid {
                         GridView()
                     }
+                    
+                    // Visual Focus Square Overlay (aligned inside 3:4 preview bounds)
+                    if let focusPosition = focusSquarePosition, focusMode == .point {
+                        FocusSquareView()
+                            .position(focusPosition)
+                            .id("\(focusPosition.x)-\(focusPosition.y)")
+                    }
                 }
                 .frame(width: UIScreen.main.bounds.width, height: UIScreen.main.bounds.width * 4 / 3)
                 
@@ -100,6 +138,7 @@ struct ContentView: View {
                             ForEach(viewModel.availableLenses) { lens in
                                 Button(action: {
                                     viewModel.selectedLens = lens
+                                    initializeFocusSquare()
                                     triggerCameraHapticFeedback()
                                 }) {
                                     Text(lens.displayName)
@@ -321,6 +360,7 @@ struct ContentView: View {
                         // Rotate Camera Button
                         Button(action: {
                             viewModel.toggleCameraPosition()
+                            initializeFocusSquare()
                             triggerCameraHapticFeedback()
                         }) {
                             ZStack {
@@ -380,6 +420,12 @@ struct ContentView: View {
         impactFeedbackGenerator.impactOccurred()
         #endif
     }
+    
+    private func initializeFocusSquare() {
+        let screenWidth = UIScreen.main.bounds.width
+        focusSquarePosition = CGPoint(x: screenWidth / 2.0, y: (screenWidth * 4.0 / 3.0) / 2.0)
+        focusMode = .auto
+    }
 }
 
 
@@ -389,8 +435,39 @@ class UICameraPreviewView: UIView {
         return layer as! AVCaptureVideoPreviewLayer
     }
     
+    var onTap: ((CGPoint, CGPoint) -> Void)?
+    
     override class var layerClass: AnyClass {
         return AVCaptureVideoPreviewLayer.self
+    }
+    
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupTapGesture()
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupTapGesture()
+    }
+    
+    private func setupTapGesture() {
+        let tapGesture = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+        self.addGestureRecognizer(tapGesture)
+    }
+    
+    @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
+        let screenPoint = gesture.location(in: self)
+        let screenWidth = bounds.width
+        let safeAreaTop = self.safeAreaInsets.top
+        let topBarHeight = safeAreaTop + 44
+        let previewFrame = CGRect(x: 0, y: topBarHeight, width: screenWidth, height: screenWidth * 4.0 / 3.0)
+        
+        if previewFrame.contains(screenPoint) {
+            let layerPoint = previewLayer.convert(screenPoint, from: self.layer)
+            let devicePoint = previewLayer.captureDevicePointConverted(fromLayerPoint: layerPoint)
+            onTap?(layerPoint, devicePoint)
+        }
     }
     
     override func layoutSubviews() {
@@ -405,6 +482,7 @@ class UICameraPreviewView: UIView {
 // Camera preview
 struct CameraPreviewView: UIViewRepresentable {
     var session: AVCaptureSession?
+    var onTap: ((CGPoint, CGPoint) -> Void)
     
     func makeUIView(context: Context) -> UICameraPreviewView {
         let view = UICameraPreviewView()
@@ -412,6 +490,7 @@ struct CameraPreviewView: UIViewRepresentable {
         if let session = session {
             view.previewLayer.session = session
         }
+        view.onTap = onTap
         return view
     }
     
@@ -419,6 +498,26 @@ struct CameraPreviewView: UIViewRepresentable {
         if uiView.previewLayer.session !== session {
             uiView.previewLayer.session = session
         }
+        uiView.onTap = onTap
+    }
+}
+
+struct FocusSquareView: View {
+    @State private var scale: CGFloat = 1.4
+    @State private var opacity: Double = 0.0
+    
+    var body: some View {
+        Rectangle()
+            .stroke(Color.yellow, lineWidth: 1.5)
+            .frame(width: 70, height: 70)
+            .scaleEffect(scale)
+            .opacity(opacity)
+            .onAppear {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    scale = 1.0
+                    opacity = 1.0
+                }
+            }
     }
 }
 

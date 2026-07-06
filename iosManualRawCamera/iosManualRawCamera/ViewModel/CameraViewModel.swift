@@ -345,6 +345,70 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
         }
     }
     
+    func focus(at point: CGPoint) {
+        guard let device = self.device else {
+            print("No camera device available for focus")
+            return
+        }
+        
+        sessionQueue.async {
+            do {
+                try device.lockForConfiguration()
+                
+                if device.isFocusPointOfInterestSupported {
+                    device.focusPointOfInterest = point
+                    device.focusMode = .autoFocus
+                }
+                
+                if device.isExposurePointOfInterestSupported {
+                    device.exposurePointOfInterest = point
+                    device.exposureMode = self.isAutoExposure ? .continuousAutoExposure : .custom
+                }
+                
+                device.isSubjectAreaChangeMonitoringEnabled = true
+                device.unlockForConfiguration()
+                print("Camera focused at device point: \(point)")
+            } catch {
+                print("Error setting focus point: \(error)")
+            }
+        }
+    }
+    
+    func resetToContinuousAutofocus() {
+        guard let device = self.device else {
+            print("No camera device available to reset focus")
+            return
+        }
+        
+        sessionQueue.async {
+            do {
+                try device.lockForConfiguration()
+                
+                // Reset points of interest to center to force active re-focus sweep
+                if device.isFocusPointOfInterestSupported {
+                    device.focusPointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                }
+                if device.isExposurePointOfInterestSupported {
+                    device.exposurePointOfInterest = CGPoint(x: 0.5, y: 0.5)
+                }
+                
+                if device.isFocusModeSupported(.continuousAutoFocus) {
+                    device.focusMode = .continuousAutoFocus
+                }
+                
+                if device.isExposureModeSupported(.continuousAutoExposure) && self.isAutoExposure {
+                    device.exposureMode = .continuousAutoExposure
+                }
+                
+                device.isSubjectAreaChangeMonitoringEnabled = false
+                device.unlockForConfiguration()
+                print("Reverted camera to continuous autofocus at center")
+            } catch {
+                print("Error resetting focus mode: \(error)")
+            }
+        }
+    }
+    
     
     //once camera setup is complete initiate capture
     func capturePhotoWithSettings() {
