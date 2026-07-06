@@ -21,8 +21,8 @@ struct ContentView: View {
     @State private var isoWheelActive = false
     @State private var ssWheelActive = false
     enum FocusModeState: String {
-        case auto = "AUTO"
-        case point = "POINT"
+        case auto = "AF-A"
+        case point = "AF-S"
     }
     
     @State private var isConfigModalPresented = false
