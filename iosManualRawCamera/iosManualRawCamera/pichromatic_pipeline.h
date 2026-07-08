@@ -23,6 +23,9 @@ void free_image_c(Image* image);
 void free_pipeline_c(PipelineConfig* pipeline);
 void free_rgb_buffer_c(uint8_t* ptr, size_t len);
 
+const char* get_image_metadata_c(const Image* image);
+void free_string_c(char* ptr);
+
 #ifdef __cplusplus
 }
 #endif

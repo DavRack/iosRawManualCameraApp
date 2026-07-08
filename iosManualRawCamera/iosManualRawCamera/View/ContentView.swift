@@ -815,6 +815,7 @@ struct ConfigView: View {
     @ObservedObject var viewModel: CameraViewModel
     @Environment(\.dismiss) var dismiss
     @State private var isPipelineConfigExpanded = false
+    @State private var isMetadataExpanded = false
     
     var body: some View {
         NavigationView {
@@ -830,6 +831,31 @@ struct ConfigView: View {
                 
                 Section(header: Text("Selfie Camera")) {
                     Toggle("Mirror Selfie Output", isOn: $viewModel.mirrorSelfieOutput)
+                }
+                
+                Section(header: Text("Last Captured Photo Metadata")) {
+                    if let metadata = viewModel.lastPhotoMetadataJson {
+                        Button(action: {
+                            isMetadataExpanded.toggle()
+                        }) {
+                            HStack {
+                                Image(systemName: "info.circle")
+                                Text(isMetadataExpanded ? "Hide Metadata" : "Deploy Metadata")
+                            }
+                        }
+                        
+                        if isMetadataExpanded {
+                            ScrollView {
+                                Text(metadata)
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .frame(maxHeight: 250)
+                        }
+                    } else {
+                        Text("No metadata available. Take a photo first.")
+                            .foregroundColor(.gray)
+                    }
                 }
                 
                 Section {

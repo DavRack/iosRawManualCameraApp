@@ -49,11 +49,14 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
        name = "CFACoeffs"
 
        [[pipeline_modules]]
-       name = "Vignette"
-       strength = 0.9
+       name = "HighlightReconstruction"
 
        [[pipeline_modules]]
-       name = "HighlightReconstruction"
+       name = "Vignette"
+       strength = 0.95
+
+       [[pipeline_modules]]
+       name = "BaselineExposureCompensation"
 
        [[pipeline_modules]]
        name = "Exp"
@@ -61,7 +64,7 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
 
        [[pipeline_modules]]
        name = "Contrast"
-       c = 1.1
+       c = 1.3
 
        [[pipeline_modules]]
        name = "CST"
@@ -70,7 +73,7 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
        [[pipeline_modules]]
        name = "LCH"
        lc = 1
-       cc = 1
+       cc = 1.25
        hc = 1
 
        [[pipeline_modules]]
@@ -112,6 +115,7 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
     @Published var minShutterSpeed: Int = 0 //slowest
     @Published var maxShutterSpeed: Int = 0 //fastest
     @Published var lastCapturedThumbnail: UIImage?
+    @Published var lastPhotoMetadataJson: String? = nil
     @Published var exportFormat: ExportFormat {
         didSet {
             UserDefaults.standard.set(exportFormat.rawValue, forKey: "exportFormat")
@@ -868,6 +872,14 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
                     self.pendingProcessingCount = max(0, self.pendingProcessingCount - 1)
                 }
                 return
+            }
+            
+            if let metadataPtr = get_image_metadata_c(rustImage) {
+                let metadataStr = String(cString: metadataPtr)
+                free_string_c(UnsafeMutablePointer(mutating: metadataPtr))
+                DispatchQueue.main.async {
+                    self.lastPhotoMetadataJson = metadataStr
+                }
             }
             
             // 2. Parse config TOML
