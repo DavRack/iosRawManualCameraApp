@@ -834,14 +834,28 @@ struct ConfigView: View {
                 
                 Section {
                     DisclosureGroup("Pichromatic pipeline", isExpanded: $isPipelineConfigExpanded) {
-                        TextEditor(text: $viewModel.pipelineConfigToml)
-                            .font(.system(.body, design: .monospaced))
-                            .frame(minHeight: 300)
-                            .autocorrectionDisabled()
-                            .textInputAutocapitalization(.none)
-                            .onChange(of: viewModel.pipelineConfigToml) { newValue in
-                                print("DEBUG SWIFT: pipelineConfigToml changed to \(newValue.count) chars")
+                        VStack(alignment: .leading, spacing: 8) {
+                            TextEditor(text: $viewModel.pipelineConfigToml)
+                                .font(.system(.body, design: .monospaced))
+                                .frame(minHeight: 300)
+                                .autocorrectionDisabled()
+                                .textInputAutocapitalization(.none)
+                                .onChange(of: viewModel.pipelineConfigToml) { newValue in
+                                    print("DEBUG SWIFT: pipelineConfigToml changed to \(newValue.count) chars")
+                                }
+                            
+                            Button(action: {
+                                viewModel.resetPipelineConfigToDefault()
+                            }) {
+                                HStack {
+                                    Image(systemName: "arrow.counterclockwise")
+                                    Text("Reset to Default")
+                                }
+                                .font(.subheadline)
+                                .foregroundColor(.red)
                             }
+                            .padding(.top, 4)
+                        }
                     }
                 }
             }

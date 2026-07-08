@@ -38,6 +38,53 @@ struct CameraLens: Identifiable, Equatable {
 }
 
 class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
+    static let defaultPipelineConfig: String = """
+       #### Pixel Pipeline ####
+
+       [[pipeline_modules]]
+       name = "Demosaic"
+       algorithm = "Markesteijn"
+
+       [[pipeline_modules]]
+       name = "CFACoeffs"
+
+       [[pipeline_modules]]
+       name = "Vignette"
+       strength = 0.9
+
+       [[pipeline_modules]]
+       name = "HighlightReconstruction"
+
+       [[pipeline_modules]]
+       name = "Exp"
+       ev = 1
+
+       [[pipeline_modules]]
+       name = "Contrast"
+       c = 1.1
+
+       [[pipeline_modules]]
+       name = "CST"
+       target_color_space = "AcesCg"
+
+       [[pipeline_modules]]
+       name = "LCH"
+       lc = 1
+       cc = 1
+       hc = 1
+
+       [[pipeline_modules]]
+       name = "ToneMap"
+
+       [[pipeline_modules]]
+       name = "CST"
+       target_color_space = "Srgb"
+       """
+
+    func resetPipelineConfigToDefault() {
+        self.pipelineConfigToml = CameraViewModel.defaultPipelineConfig
+    }
+
     var captureSession: AVCaptureSession?
     private var photoOutput = AVCapturePhotoOutput()
     private let sessionQueue = DispatchQueue(label: "session queue")
@@ -152,50 +199,11 @@ class CameraViewModel: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate
             self.mirrorSelfieOutput = true
         }
        
-       let defaultToml = """
-       #### Pixel Pipeline ####
-
-       [[pipeline_modules]]
-       name = "Demosaic"
-       algorithm = "Markesteijn"
-
-       [[pipeline_modules]]
-       name = "CFACoeffs"
-
-       [[pipeline_modules]]
-       name = "HighlightReconstruction"
-
-       [[pipeline_modules]]
-       name = "Exp"
-       ev = 1
-
-       [[pipeline_modules]]
-       name = "Contrast"
-       c = 1.1
-
-       [[pipeline_modules]]
-       name = "CST"
-       target_color_space = "XyzD65"
-
-       [[pipeline_modules]]
-       name = "LCH"
-       lc = 1
-       cc = 1
-       hc = 1
-
-       [[pipeline_modules]]
-       name = "ToneMap"
-
-       [[pipeline_modules]]
-       name = "CST"
-       target_color_space = "Srgb"
-       """
-       
-       if let storedToml = UserDefaults.standard.string(forKey: "pipelineConfigToml") {
-           self.pipelineConfigToml = storedToml
-       } else {
-           self.pipelineConfigToml = defaultToml
-       }
+        if let storedToml = UserDefaults.standard.string(forKey: "pipelineConfigToml") {
+            self.pipelineConfigToml = storedToml
+        } else {
+            self.pipelineConfigToml = CameraViewModel.defaultPipelineConfig
+        }
        
        super.init()
        checkPermissions()
